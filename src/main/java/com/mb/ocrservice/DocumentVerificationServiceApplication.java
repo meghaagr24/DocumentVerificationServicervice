@@ -6,9 +6,9 @@ import org.springframework.scheduling.annotation.EnableAsync;
 
 @SpringBootApplication
 @EnableAsync
-public class OcrServiceApplication {
+public class DocumentVerificationServiceApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(OcrServiceApplication.class, args);
+        SpringApplication.run(DocumentVerificationServiceApplication.class, args);
     }
 }

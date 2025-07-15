@@ -9,7 +9,7 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.mb</groupId>
-    <artifactId>ocr-service</artifactId>
+    <artifactId>documentation-verification-service</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>OCR Service</name>
     <description>Document validation service using Google Vision OCR</description>

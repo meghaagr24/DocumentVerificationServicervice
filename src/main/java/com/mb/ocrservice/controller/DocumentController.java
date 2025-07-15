@@ -18,9 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/documents")
@@ -47,7 +45,7 @@ public class DocumentController {
             @RequestParam("documentType") String documentType) {
         try {
             Document document = documentService.uploadAndProcessDocument(file, documentType);
-            return ResponseEntity.status(HttpStatus.CREATED).body(convertToDto(document));
+            return ResponseEntity.status(HttpStatus.CREATED).body(documentService.convertToDto(document));
         } catch (IOException e) {
             log.error("Failed to upload document", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -66,8 +64,7 @@ public class DocumentController {
     @GetMapping("/{id}")
     public ResponseEntity<DocumentDto> getDocument(@PathVariable Integer id) {
         try {
-            Document document = documentService.getDocument(id);
-            return ResponseEntity.ok(convertToDto(document));
+            return ResponseEntity.ok(documentService.getDocument(id));
         } catch (IllegalArgumentException e) {
             log.error("Document not found", e);
             return ResponseEntity.notFound().build();
@@ -82,9 +79,7 @@ public class DocumentController {
      */
     @GetMapping
     public ResponseEntity<Page<DocumentDto>> getAllDocuments(Pageable pageable) {
-        Page<Document> documents = documentService.getAllDocuments(pageable);
-        Page<DocumentDto> documentDtos = documents.map(this::convertToDto);
-        return ResponseEntity.ok(documentDtos);
+        return ResponseEntity.ok(documentService.getAllDocumentDtos(pageable));
     }
 
     /**
@@ -100,7 +95,7 @@ public class DocumentController {
             Pageable pageable) {
         try {
             Page<Document> documents = documentService.getDocumentsByType(documentType, pageable);
-            Page<DocumentDto> documentDtos = documents.map(this::convertToDto);
+            Page<DocumentDto> documentDtos = documents.map(documentService::convertToDto);
             return ResponseEntity.ok(documentDtos);
         } catch (IllegalArgumentException e) {
             log.error("Invalid document type", e);
@@ -120,7 +115,7 @@ public class DocumentController {
             @PathVariable String status,
             Pageable pageable) {
         Page<Document> documents = documentService.getDocumentsByStatus(status, pageable);
-        Page<DocumentDto> documentDtos = documents.map(this::convertToDto);
+        Page<DocumentDto> documentDtos = documents.map(documentService::convertToDto);
         return ResponseEntity.ok(documentDtos);
     }
 
@@ -152,10 +147,7 @@ public class DocumentController {
      */
     @GetMapping("/{id}/ocr-result")
     public ResponseEntity<OcrResultDto> getOcrResult(@PathVariable Integer id) {
-        Optional<OcrResult> ocrResult = documentService.getOcrResult(id);
-        return ocrResult
-                .map(result -> ResponseEntity.ok(convertToDto(result)))
-                .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(documentService.getOcrResult(id));
     }
 
     /**
@@ -166,64 +158,7 @@ public class DocumentController {
      */
     @GetMapping("/{id}/validation-result")
     public ResponseEntity<ValidationResultDto> getValidationResult(@PathVariable Integer id) {
-        Optional<ValidationResult> validationResult = documentService.getValidationResult(id);
-        return validationResult
-                .map(result -> ResponseEntity.ok(convertToDto(result)))
-                .orElse(ResponseEntity.notFound().build());
+        return ResponseEntity.ok(documentService.getValidationResult(id));
     }
 
-    /**
-     * Convert a Document entity to a DocumentDto.
-     *
-     * @param document The Document entity
-     * @return The DocumentDto
-     */
-    private DocumentDto convertToDto(Document document) {
-        DocumentDto dto = new DocumentDto();
-        dto.setId(document.getId());
-        dto.setFileName(document.getFileName());
-        dto.setFileSize(document.getFileSize());
-        dto.setMimeType(document.getMimeType());
-        dto.setStatus(document.getStatus());
-        dto.setDocumentType(document.getDocumentType().getName());
-        dto.setCreatedAt(document.getCreatedAt());
-        dto.setUpdatedAt(document.getUpdatedAt());
-        return dto;
-    }
-
-    /**
-     * Convert an OcrResult entity to an OcrResultDto.
-     *
-     * @param ocrResult The OcrResult entity
-     * @return The OcrResultDto
-     */
-    private OcrResultDto convertToDto(OcrResult ocrResult) {
-        OcrResultDto dto = new OcrResultDto();
-        dto.setId(ocrResult.getId());
-        dto.setDocumentId(ocrResult.getDocument().getId());
-        dto.setRawText(ocrResult.getRawText());
-        dto.setStructuredData(ocrResult.getStructuredData());
-        dto.setConfidenceScore(ocrResult.getConfidenceScore());
-        dto.setProcessingTime(ocrResult.getProcessingTime());
-        dto.setCreatedAt(ocrResult.getCreatedAt());
-        return dto;
-    }
-
-    /**
-     * Convert a ValidationResult entity to a ValidationResultDto.
-     *
-     * @param validationResult The ValidationResult entity
-     * @return The ValidationResultDto
-     */
-    private ValidationResultDto convertToDto(ValidationResult validationResult) {
-        ValidationResultDto dto = new ValidationResultDto();
-        dto.setId(validationResult.getId());
-        dto.setDocumentId(validationResult.getDocument().getId());
-        dto.setAuthentic(validationResult.getIsAuthentic());
-        dto.setComplete(validationResult.getIsComplete());
-        dto.setOverallConfidenceScore(validationResult.getOverallConfidenceScore());
-        dto.setValidationDetails(validationResult.getValidationDetails());
-        dto.setCreatedAt(validationResult.getCreatedAt());
-        return dto;
-    }
 }

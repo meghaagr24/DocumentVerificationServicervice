@@ -1,5 +1,8 @@
 package com.mb.ocrservice.service;
 
+import com.mb.ocrservice.dto.DocumentDto;
+import com.mb.ocrservice.dto.OcrResultDto;
+import com.mb.ocrservice.dto.ValidationResultDto;
 import com.mb.ocrservice.model.Document;
 import com.mb.ocrservice.model.DocumentType;
 import com.mb.ocrservice.model.OcrResult;
@@ -95,9 +98,11 @@ public class DocumentService {
      * @param id The ID of the document
      * @return The document
      */
-    public Document getDocument(Integer id) {
-        return documentRepository.findById(id)
+    public DocumentDto getDocument(Integer id) {
+        Document document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found with ID: " + id));
+        return convertToDto(document);
+
     }
 
     /**
@@ -168,6 +173,16 @@ public class DocumentService {
     }
 
     /**
+     * Get all documents as DTOs with pagination.
+     *
+     * @param pageable The pagination information
+     * @return A page of document DTOs
+     */
+    public Page<DocumentDto> getAllDocumentDtos(Pageable pageable) {
+        return documentRepository.findAll(pageable).map(this::convertToDto);
+    }
+
+    /**
      * Delete a document.
      *
      * @param id The ID of the document to delete
@@ -191,8 +206,9 @@ public class DocumentService {
      * @param documentId The ID of the document
      * @return The OCR result
      */
-    public Optional<OcrResult> getOcrResult(Integer documentId) {
-        return ocrService.getOcrResult(documentId);
+    public OcrResultDto getOcrResult(Integer documentId) {
+        Optional<OcrResult> ocrResult = ocrService.getOcrResult(documentId);
+        return ocrResult.isEmpty() ? new OcrResultDto():  convertToDto(ocrResult.get());
     }
 
     /**
@@ -201,7 +217,64 @@ public class DocumentService {
      * @param documentId The ID of the document
      * @return The validation result
      */
-    public Optional<ValidationResult> getValidationResult(Integer documentId) {
-        return validationService.getValidationResult(documentId);
+    public ValidationResultDto getValidationResult(Integer documentId) {
+        Optional<ValidationResult> validationResult = validationService.getValidationResult(documentId);
+        return validationResult.isEmpty() ? new ValidationResultDto():  convertToDto(validationResult.get());
+
+    }
+
+    /**
+     * Convert a Document entity to a DocumentDto.
+     *
+     * @param document The Document entity
+     * @return The DocumentDto
+     */
+    public DocumentDto convertToDto(Document document) {
+        DocumentDto dto = new DocumentDto();
+        dto.setId(document.getId());
+        dto.setFileName(document.getFileName());
+        dto.setFileSize(document.getFileSize());
+        dto.setMimeType(document.getMimeType());
+        dto.setStatus(document.getStatus());
+        dto.setDocumentType(document.getDocumentType().getName());
+        dto.setCreatedAt(document.getCreatedAt());
+        dto.setUpdatedAt(document.getUpdatedAt());
+        return dto;
+    }
+
+    /**
+     * Convert an OcrResult entity to an OcrResultDto.
+     *
+     * @param ocrResult The OcrResult entity
+     * @return The OcrResultDto
+     */
+    public OcrResultDto convertToDto(OcrResult ocrResult) {
+        OcrResultDto dto = new OcrResultDto();
+        dto.setId(ocrResult.getId());
+        dto.setDocumentId(ocrResult.getDocument().getId());
+        dto.setRawText(ocrResult.getRawText());
+        dto.setStructuredData(ocrResult.getStructuredData());
+        dto.setConfidenceScore(ocrResult.getConfidenceScore());
+        dto.setProcessingTime(ocrResult.getProcessingTime());
+        dto.setCreatedAt(ocrResult.getCreatedAt());
+        return dto;
+    }
+
+    /**
+     * Convert a ValidationResult entity to a ValidationResultDto.
+     *
+     * @param validationResult The ValidationResult entity
+     * @return The ValidationResultDto
+     */
+    public ValidationResultDto convertToDto(ValidationResult validationResult) {
+        ValidationResultDto dto = new ValidationResultDto();
+        dto.setId(validationResult.getId());
+        dto.setDocumentId(validationResult.getDocument().getId());
+        dto.setAuthentic(validationResult.getIsAuthentic());
+        dto.setComplete(validationResult.getIsComplete());
+        dto.setOverallConfidenceScore(validationResult.getOverallConfidenceScore());
+        dto.setValidationDetails(validationResult.getValidationDetails());
+        dto.setCreatedAt(validationResult.getCreatedAt());
+        return dto;
     }
 }
