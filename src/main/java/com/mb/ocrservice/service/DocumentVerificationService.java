@@ -75,24 +75,24 @@ public class DocumentVerificationService {
         try {
             // Create audit log for event received
             createAuditLog("VERIFY_DOCUMENT_EVENT_RECEIVED",
-                    "Received verify-document event for application: " + event.getApplicationId(),
+                    "Received verify-document event for application: " + event.getApplicationId() + ", storage: " + event.getStorageId(),
                     event.getApplicationId(),
                     event.getEventId());
             
-            // Find PAN card document in the application directory
-            Path applicationDir = Paths.get(storageLocation, event.getApplicationId());
-            if (!Files.exists(applicationDir)) {
-                throw new IOException("Application directory not found: " + applicationDir);
+            // Find PAN card document in the storage directory
+            Path storageDir = Paths.get(storageLocation, event.getStorageId());
+            if (!Files.exists(storageDir)) {
+                throw new IOException("Storage directory not found: " + storageDir);
             }
             
             // Look for PAN card documents
-            Optional<Path> panCardPath = Files.walk(applicationDir, 1)
+            Optional<Path> panCardPath = Files.walk(storageDir, 1)
                     .filter(path -> !Files.isDirectory(path))
                     .filter(path -> path.getFileName().toString().toLowerCase().contains("pan"))
                     .findFirst();
             
             if (panCardPath.isEmpty()) {
-                throw new IOException("PAN card document not found in application directory: " + applicationDir);
+                throw new IOException("PAN card document not found in storage directory: " + storageDir);
             }
             
             // Get PAN document type
@@ -149,7 +149,7 @@ public class DocumentVerificationService {
                     });
             
             // Log that processing has started
-            log.info("Started processing document for application: {}", event.getApplicationId());
+            log.info("Started processing document for application: {}, storage: {}", event.getApplicationId(), event.getStorageId());
             
         } catch (Exception e) {
             log.error("Error processing verify-document event", e);
@@ -204,6 +204,7 @@ public class DocumentVerificationService {
         
         DocumentVerificationCompletedEvent event = DocumentVerificationCompletedEvent.builder()
                 .applicationNumber(originalEvent.getApplicationId())
+                .storageId(originalEvent.getStorageId())
                 .requestId(originalEvent.getEventId())
                 .documentId(document.getId())
                 .documentType(document.getDocumentType().getName())
@@ -219,7 +220,7 @@ public class DocumentVerificationService {
         
         kafkaTemplate.send(documentVerificationCompletedTopic, event);
         
-        log.info("Published document-verification-completed event for application: {}", originalEvent.getApplicationId());
+        log.info("Published document-verification-completed event for application: {}, storage: {}", originalEvent.getApplicationId(), originalEvent.getStorageId());
         
         // Create audit log for event published
         createAuditLog("DOCUMENT_VERIFICATION_COMPLETED_EVENT_PUBLISHED",
@@ -237,6 +238,7 @@ public class DocumentVerificationService {
     private void publishErrorEvent(VerifyDocumentEvent originalEvent, String errorMessage) {
         DocumentVerificationCompletedEvent event = DocumentVerificationCompletedEvent.builder()
                 .applicationNumber(originalEvent.getApplicationId())
+                .storageId(originalEvent.getStorageId())
                 .requestId(originalEvent.getEventId())
                 .status(Document.Status.FAILED.name())
                 .verificationDetails(createErrorMap(errorMessage))
@@ -245,7 +247,7 @@ public class DocumentVerificationService {
         
         kafkaTemplate.send(documentVerificationCompletedTopic, event);
         
-        log.info("Published error event for application: {}", originalEvent.getApplicationId());
+        log.info("Published error event for application: {}, storage: {}", originalEvent.getApplicationId(), originalEvent.getStorageId());
     }
     
     /**

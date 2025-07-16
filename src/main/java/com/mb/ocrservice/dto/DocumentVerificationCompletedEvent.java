@@ -24,6 +24,12 @@ public class DocumentVerificationCompletedEvent {
     private String applicationNumber;
     
     /**
+     * The storage ID used to locate the documents in the storage directory.
+     * This is the folder name in the document storage location.
+     */
+    private String storageId;
+    
+    /**
      * The ID of the user who initiated the document verification request.
      */
     private Integer userId;
