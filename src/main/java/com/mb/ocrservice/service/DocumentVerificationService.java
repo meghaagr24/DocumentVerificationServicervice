@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
@@ -68,88 +69,68 @@ public class DocumentVerificationService {
      * @param event The verify-document event
      */
     @KafkaListener(topics = "${kafka.topic.verify-document:verify-document}", groupId = "${kafka.group-id:document-verification-service}")
-    @Transactional
     public void processVerifyDocumentEvent(VerifyDocumentEvent event) {
         log.info("Received verify-document event: {}", event);
         
         try {
             // Create audit log for event received
             createAuditLog("VERIFY_DOCUMENT_EVENT_RECEIVED",
-                    "Received verify-document event for application: " + event.getApplicationId() + ", storage: " + event.getStorageId(),
+                    "Received verify-document event for application: " + event.getApplicationId() +
+                    ", with " + event.getApplicantStorageIds().size() + " storage IDs",
                     event.getApplicationId(),
                     event.getEventId());
             
-            // Find PAN card document in the storage directory
-            Path storageDir = Paths.get(storageLocation, event.getStorageId());
-            if (!Files.exists(storageDir)) {
-                throw new IOException("Storage directory not found: " + storageDir);
+            // Create the completed event that will be populated with results
+            DocumentVerificationCompletedEvent completedEvent = DocumentVerificationCompletedEvent.builder()
+                    .applicationNumber(event.getApplicationId())
+                    .requestId(event.getEventId())
+                    .status(Document.Status.COMPLETED.name())
+                    .completedAt(Instant.now().toEpochMilli())
+                    .build();
+            
+            // For backward compatibility
+            if (event.getApplicantStorageIds().isEmpty() && event.getStorageId() != null) {
+                // Add the storageId to applicantStorageIds with a default customer ID
+                event.getApplicantStorageIds().put(event.getStorageId(), "default");
             }
             
-            // Look for PAN card documents
-            Optional<Path> panCardPath = Files.walk(storageDir, 1)
-                    .filter(path -> !Files.isDirectory(path))
-                    .filter(path -> path.getFileName().toString().toLowerCase().contains("pan"))
-                    .findFirst();
-            
-            if (panCardPath.isEmpty()) {
-                throw new IOException("PAN card document not found in storage directory: " + storageDir);
+            // Process each storage ID
+            boolean hasErrors = false;
+            for (Map.Entry<String, String> entry : event.getApplicantStorageIds().entrySet()) {
+                String customerId = entry.getKey();
+                String storageId = entry.getValue();
+                
+                try {
+                    // Process the document for this storage ID and customer ID
+                    processDocumentForStorageId(event, storageId, customerId, completedEvent);
+                } catch (Exception e) {
+                    log.error("Error processing document for storage ID: {}, customer ID: {}", storageId, customerId, e);
+                    
+                    // Create audit log for error
+                    createAuditLog("DOCUMENT_PROCESSING_ERROR",
+                            "Error processing document for storage ID: " + storageId + ", customer ID: " + customerId + ": " + e.getMessage(),
+                            event.getApplicationId(),
+                            event.getEventId());
+                    
+                    hasErrors = true;
+                }
             }
             
-            // Get PAN document type
-            DocumentType panDocumentType = documentTypeRepository.findByName("PAN")
-                    .orElseThrow(() -> new IllegalStateException("PAN document type not found in database"));
+            // Set the overall status based on whether there were any errors
+            if (hasErrors) {
+                completedEvent.setStatus("PARTIAL_SUCCESS");
+            }
             
-            // Create document entity
-            Document document = new Document();
-            document.setDocumentType(panDocumentType);
-            document.setFileName(panCardPath.get().getFileName().toString());
-            document.setFilePath(panCardPath.get().toString());
-            document.setFileSize(Files.size(panCardPath.get()));
-            document.setMimeType(Files.probeContentType(panCardPath.get()));
-            document.setStatus(Document.Status.PENDING.name());
+            // Publish the completed event
+            kafkaTemplate.send(documentVerificationCompletedTopic, completedEvent);
             
-            // Save document metadata
-            Document savedDocument = documentRepository.save(document);
-            
-            // Create audit log for document metadata saved
-            createAuditLog("DOCUMENT_METADATA_SAVED",
-                    "Saved metadata for document: " + savedDocument.getId(),
+            // Create audit log for event published
+            createAuditLog("DOCUMENT_VERIFICATION_COMPLETED_EVENT_PUBLISHED",
+                    "Published document-verification-completed event for application: " + event.getApplicationId(),
                     event.getApplicationId(),
                     event.getEventId());
             
-            // Process document asynchronously
-            CompletableFuture<Void> processingFuture = documentService.processDocumentAsync(savedDocument.getId())
-                    .thenAccept(validationResult -> {
-                        try {
-                            // Get OCR and validation results
-                            OcrResultDto ocrResult = documentService.getOcrResult(savedDocument.getId());
-                            ValidationResultDto validationResult1 = documentService.getValidationResult(savedDocument.getId());
-                            
-                            // Create audit log for document processed
-                            createAuditLog("DOCUMENT_PROCESSED",
-                                    "Processed document: " + savedDocument.getId(),
-                                    event.getApplicationId(),
-                                    event.getEventId());
-                            
-                            // Publish document-verification-completed event
-                            publishDocumentVerificationCompletedEvent(
-                                    event, 
-                                    savedDocument, 
-                                    ocrResult, 
-                                    validationResult1);
-                        } catch (Exception e) {
-                            log.error("Error processing document verification results", e);
-                            
-                            // Create audit log for error
-                            createAuditLog("DOCUMENT_PROCESSING_ERROR",
-                                    "Error processing document: " + e.getMessage(),
-                                    event.getApplicationId(),
-                                    event.getEventId());
-                        }
-                    });
-            
-            // Log that processing has started
-            log.info("Started processing document for application: {}, storage: {}", event.getApplicationId(), event.getStorageId());
+            log.info("Completed processing all documents for application: {}", event.getApplicationId());
             
         } catch (Exception e) {
             log.error("Error processing verify-document event", e);
@@ -163,6 +144,123 @@ public class DocumentVerificationService {
             // Publish error event
             publishErrorEvent(event, e.getMessage());
         }
+    }
+    
+    /**
+     * Processes a document for a specific storage ID and customer ID.
+     *
+     * @param event The original verify-document event
+     * @param storageId The storage ID to process
+     * @param customerId The customer ID associated with the storage ID
+     * @param completedEvent The completed event to populate with results
+     * @throws IOException If an error occurs during file operations
+     */
+    private void processDocumentForStorageId(
+            VerifyDocumentEvent event,
+            String storageId,
+            String customerId,
+            DocumentVerificationCompletedEvent completedEvent) throws IOException {
+        
+        log.info("Processing document for storage ID: {}, customer ID: {}", storageId, customerId);
+        
+        // Find PAN card document in the storage directory
+        Path storageDir = Paths.get(storageLocation, storageId);
+        if (!Files.exists(storageDir)) {
+            throw new IOException("Storage directory not found: " + storageDir);
+        }
+        
+        // Look for PAN card documents
+        Optional<Path> panCardPath = Files.walk(storageDir, 1)
+                .filter(path -> !Files.isDirectory(path))
+                .filter(path -> path.getFileName().toString().toLowerCase().contains("pan"))
+                .findFirst();
+        
+        if (panCardPath.isEmpty()) {
+            throw new IOException("PAN card document not found in storage directory: " + storageDir);
+        }
+        
+        // Get PAN document type
+        DocumentType panDocumentType = documentTypeRepository.findByName("PAN")
+                .orElseThrow(() -> new IllegalStateException("PAN document type not found in database"));
+        
+        // Create document entity
+        Document document = new Document();
+        document.setDocumentType(panDocumentType);
+        document.setFileName(panCardPath.get().getFileName().toString());
+        document.setFilePath(panCardPath.get().toString());
+        document.setFileSize(Files.size(panCardPath.get()));
+        document.setMimeType(Files.probeContentType(panCardPath.get()));
+        document.setStatus(Document.Status.PENDING.name());
+        
+        // Save document metadata in a separate transaction to ensure it's committed
+        Document savedDocument = saveDocumentMetadata(document, event);
+        
+        // Process document synchronously, but use the async method from DocumentService
+        log.info("Processing document with ID: {}", savedDocument.getId());
+        documentService.processDocumentAsync(savedDocument.getId()).join();
+        
+        // Get OCR and validation results
+        OcrResultDto ocrResult = documentService.getOcrResult(savedDocument.getId());
+        ValidationResultDto validationResult = documentService.getValidationResult(savedDocument.getId());
+
+        // Create audit log for document processed
+        createAuditLog("DOCUMENT_PROCESSED",
+                "Processed document: " + savedDocument.getId() + " for customer: " + customerId,
+                event.getApplicationId(),
+                event.getEventId());
+        
+        // Create a customer document result
+        DocumentVerificationCompletedEvent.CustomerDocumentResult result =
+                DocumentVerificationCompletedEvent.CustomerDocumentResult.builder()
+                .documentId(savedDocument.getId())
+                .storageId(storageId)
+                .documentType(savedDocument.getDocumentType().getName())
+                .isAuthentic(validationResult.getAuthentic())
+                .isComplete(validationResult.getComplete())
+                .confidenceScore(validationResult.getOverallConfidenceScore())
+                .rawText(ocrResult.getRawText())
+                .extractedData(ocrResult.getStructuredData())
+                .verificationDetails(validationResult.getValidationDetails())
+                .build();
+        
+        // Add the result to the completed event
+        completedEvent.addCustomerResult(customerId, result);
+        
+        // For backward compatibility, set the fields in the completed event
+//        if (completedEvent.getStorageId() == null) {
+//            completedEvent.setStorageId(storageId);
+//            completedEvent.setDocumentId(savedDocument.getId());
+//            completedEvent.setDocumentType(savedDocument.getDocumentType().getName());
+//            completedEvent.setIsAuthentic(validationResult.getAuthentic());
+//            completedEvent.setIsComplete(validationResult.getComplete());
+//            completedEvent.setConfidenceScore(validationResult.getOverallConfidenceScore());
+//            completedEvent.setRawText(ocrResult.getRawText());
+//            completedEvent.setExtractedData(ocrResult.getStructuredData());
+//            completedEvent.setVerificationDetails(validationResult.getValidationDetails());
+//        }
+//
+        log.info("Completed processing document for storage ID: {}, customer ID: {}", storageId, customerId);
+    }
+    
+    /**
+     * Saves document metadata in a separate transaction to ensure it's committed
+     * before processing.
+     *
+     * @param document The document to save
+     * @param event The original verify-document event
+     * @return The saved document
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Document saveDocumentMetadata(Document document, VerifyDocumentEvent event) {
+        Document savedDocument = documentRepository.save(document);
+        
+        // Create audit log for document metadata saved
+        createAuditLog("DOCUMENT_METADATA_SAVED",
+                "Saved metadata for document: " + savedDocument.getId(),
+                event.getApplicationId(),
+                event.getEventId());
+        
+        return savedDocument;
     }
     
     /**
@@ -188,46 +286,6 @@ public class DocumentVerificationService {
         auditLogRepository.save(auditLog);
     }
     
-    /**
-     * Publishes a document-verification-completed event to Kafka.
-     *
-     * @param originalEvent The original verify-document event
-     * @param document The document that was processed
-     * @param ocrResult The OCR result
-     * @param validationResult The validation result
-     */
-    private void publishDocumentVerificationCompletedEvent(
-            VerifyDocumentEvent originalEvent, 
-            Document document, 
-            OcrResultDto ocrResult, 
-            ValidationResultDto validationResult) {
-        
-        DocumentVerificationCompletedEvent event = DocumentVerificationCompletedEvent.builder()
-                .applicationNumber(originalEvent.getApplicationId())
-                .storageId(originalEvent.getStorageId())
-                .requestId(originalEvent.getEventId())
-                .documentId(document.getId())
-                .documentType(document.getDocumentType().getName())
-                .status(document.getStatus())
-                .isAuthentic(validationResult.getAuthentic())
-                .isComplete(validationResult.getComplete())
-                .confidenceScore(validationResult.getOverallConfidenceScore())
-                .rawText(ocrResult.getRawText())
-                .extractedData(ocrResult.getStructuredData())
-                .verificationDetails(validationResult.getValidationDetails())
-                .completedAt(Instant.now().toEpochMilli())
-                .build();
-        
-        kafkaTemplate.send(documentVerificationCompletedTopic, event);
-        
-        log.info("Published document-verification-completed event for application: {}, storage: {}", originalEvent.getApplicationId(), originalEvent.getStorageId());
-        
-        // Create audit log for event published
-        createAuditLog("DOCUMENT_VERIFICATION_COMPLETED_EVENT_PUBLISHED",
-                "Published document-verification-completed event for document: " + document.getId(),
-                originalEvent.getApplicationId(),
-                originalEvent.getEventId());
-    }
     
     /**
      * Publishes an error event to Kafka.
@@ -238,7 +296,7 @@ public class DocumentVerificationService {
     private void publishErrorEvent(VerifyDocumentEvent originalEvent, String errorMessage) {
         DocumentVerificationCompletedEvent event = DocumentVerificationCompletedEvent.builder()
                 .applicationNumber(originalEvent.getApplicationId())
-                .storageId(originalEvent.getStorageId())
+                .storageId(originalEvent.getFirstStorageId()) // Use the first storage ID for backward compatibility
                 .requestId(originalEvent.getEventId())
                 .status(Document.Status.FAILED.name())
                 .verificationDetails(createErrorMap(errorMessage))
@@ -247,7 +305,7 @@ public class DocumentVerificationService {
         
         kafkaTemplate.send(documentVerificationCompletedTopic, event);
         
-        log.info("Published error event for application: {}, storage: {}", originalEvent.getApplicationId(), originalEvent.getStorageId());
+        log.info("Published error event for application: {}", originalEvent.getApplicationId());
     }
     
     /**
