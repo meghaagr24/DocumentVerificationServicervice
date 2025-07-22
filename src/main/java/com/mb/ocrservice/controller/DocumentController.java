@@ -3,6 +3,7 @@ package com.mb.ocrservice.controller;
 import com.mb.ocrservice.dto.DocumentDto;
 import com.mb.ocrservice.dto.OcrResultDto;
 import com.mb.ocrservice.dto.ValidationResultDto;
+import com.mb.ocrservice.exception.DocumentUploadException;
 import com.mb.ocrservice.model.Document;
 import com.mb.ocrservice.model.OcrResult;
 import com.mb.ocrservice.model.ValidationResult;
@@ -40,18 +41,32 @@ public class DocumentController {
      * @return The created document
      */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<DocumentDto> uploadDocument(
+    public ResponseEntity<DocumentDto> uploadDocumentWithProcessing(
             @RequestParam("file") MultipartFile file,
             @RequestParam("documentType") String documentType) {
         try {
             Document document = documentService.uploadAndProcessDocument(file, documentType);
             return ResponseEntity.status(HttpStatus.CREATED).body(documentService.convertToDto(document));
-        } catch (IOException e) {
-            log.error("Failed to upload document", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        } catch (IllegalArgumentException e) {
-            log.error("Invalid document type", e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        } catch (DocumentUploadException e) {
+            log.error("Document upload failed: {}", e.getMessage(), e);
+            // The GlobalExceptionHandler will handle this exception and return proper error response
+            throw e;
+        }
+    }
+
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<DocumentDto> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("documentType") String documentType,
+            @RequestParam("storageId") String storageId) {
+
+        try {
+            Document document = documentService.uploadDocument(file, documentType, storageId);
+            return ResponseEntity.status(HttpStatus.CREATED).body(documentService.convertToDto(document));
+        } catch (DocumentUploadException e) {
+            log.error("Document upload failed: {}", e.getMessage(), e);
+            // The GlobalExceptionHandler will handle this exception and return proper error response
+            throw e;
         }
     }
 

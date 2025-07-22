@@ -53,6 +53,6 @@ public class Document extends BaseEntity {
         PENDING,
         PROCESSING,
         COMPLETED,
-        FAILED
+        UPLOADED, FAILED
     }
 }

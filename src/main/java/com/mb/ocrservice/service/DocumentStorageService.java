@@ -30,10 +30,6 @@ public class DocumentStorageService {
      * @throws IOException If an error occurs during file storage
      */
     public String storeDocument(MultipartFile file, String documentType) throws IOException {
-        if (file.isEmpty()) {
-            throw new IllegalArgumentException("Cannot store empty file");
-        }
-
         // Create storage directory if it doesn't exist
         Path storagePath = Paths.get(storageLocation, documentType.toLowerCase());
         if (!Files.exists(storagePath)) {
@@ -56,19 +52,60 @@ public class DocumentStorageService {
     }
 
     /**
-     * Retrieves a document file from storage.
+     * Stores a document file with the original filename, replacing if it already exists.
      *
-     * @param filePath The path of the file to retrieve
-     * @return The file as a byte array
-     * @throws IOException If an error occurs during file retrieval
+     * @param file The document file to store
+     * @param documentType The type of document (used for organizing files)
+     * @param storageId The storage ID for organizing files
+     * @return The path where the file is stored
+     * @throws IOException If an error occurs during file storage
      */
-    public byte[] getDocument(String filePath) throws IOException {
-        Path path = Paths.get(filePath);
-        if (!Files.exists(path)) {
-            throw new IOException("File not found: " + filePath);
+    public String storeDocument(MultipartFile file, String documentType, String storageId) throws IOException {
+        // Create storage directory if it doesn't exist
+        Path storagePath = Paths.get(storageLocation, storageId);
+        if (!Files.exists(storagePath)) {
+            Files.createDirectories(storagePath);
+        }
+
+        // Generate a unique filename to avoid collisions
+        String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
+        String uniqueFilename = documentType+"_" +originalFilename;
+        
+        // Store the file
+        Path destinationPath = storagePath.resolve(uniqueFilename);
+        
+        try (InputStream inputStream = file.getInputStream()) {
+            Files.copy(inputStream, destinationPath, StandardCopyOption.REPLACE_EXISTING);
         }
         
-        return Files.readAllBytes(path);
+        log.info("Stored document: {} as {}", originalFilename, destinationPath);
+        return destinationPath.toString();
+    }
+
+    /**
+     * Checks if a file with the given filename exists in the specified storage location.
+     *
+     * @param filename The filename to check
+     * @param storageId The storage ID
+     * @return true if the file exists, false otherwise
+     */
+    public boolean fileExists(String filename, String storageId) {
+        Path storagePath = Paths.get(storageLocation, storageId);
+        Path filePath = storagePath.resolve(filename);
+        return Files.exists(filePath);
+    }
+
+    /**
+     * Gets the full path for a file in the specified storage location.
+     *
+     * @param filename The filename
+     * @param storageId The storage ID
+     * @return The full path to the file
+     */
+    public String getFilePath(String filename, String storageId) {
+        Path storagePath = Paths.get(storageLocation, storageId);
+        Path filePath = storagePath.resolve(filename);
+        return filePath.toString();
     }
 
     /**
