@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -477,5 +480,42 @@ public class DocumentService {
         dto.setValidationDetails(validationResult.getValidationDetails());
         dto.setCreatedAt(validationResult.getCreatedAt());
         return dto;
+    }
+
+    /**
+     * Get document image by storage ID and document type.
+     *
+     * @param storageId The storage ID
+     * @param documentType The document type
+     * @return The document image as a byte array
+     * @throws IOException If an error occurs while reading the file
+     * @throws IllegalArgumentException If the document is not found
+     */
+    public byte[] getDocumentImageByStorageIdAndType(String storageId, String documentType) throws IOException {
+        // Construct the storage directory path
+        String storageLocation = documentStorageService.getStorageLocation();
+        Path storageDir = Paths.get(storageLocation, storageId);
+
+        if (!Files.exists(storageDir)) {
+            throw new IllegalArgumentException("Storage directory not found: " + storageDir);
+        }
+
+        // Look for files that contain the document type in their name
+        try (var stream = Files.walk(storageDir, 1)) {
+            Optional<Path> documentFile = stream
+                    .filter(path -> !Files.isDirectory(path))
+                    .filter(path -> {
+                        String fileName = path.getFileName().toString().toLowerCase();
+                        String docType = documentType.toLowerCase();
+                        return fileName.contains(docType);
+                    })
+                    .findFirst();
+
+            if (documentFile.isEmpty()) {
+                throw new IllegalArgumentException("Document of type '" + documentType + "' not found in storage directory: " + storageDir);
+            }
+
+            return Files.readAllBytes(documentFile.get());
+        }
     }
 }
