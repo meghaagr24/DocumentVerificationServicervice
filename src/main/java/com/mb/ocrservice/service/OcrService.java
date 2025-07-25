@@ -212,8 +212,10 @@ public class OcrService {
         Pattern namePattern = Pattern.compile("(?i)(?:name|नाम)[:\\s]+([\\p{L}\\s]+)");
         Matcher nameMatcher = namePattern.matcher(text);
         if (nameMatcher.find()) {
-            String name = nameMatcher.group(1).trim();
-            addFieldWithConfidence(data, "name", name, 0.85f);
+            String name = cleanText(nameMatcher.group(1).trim());
+            if (!name.isEmpty()) {
+                addFieldWithConfidence(data, "name", name, 0.85f);
+            }
         }
         
         // Extract date of birth
@@ -236,8 +238,10 @@ public class OcrService {
         Pattern addressPattern = Pattern.compile("(?i)(?:Address|पता)[:\\s]+([\\s\\S]+?)(?:\\n\\n|\\d{6}|$)");
         Matcher addressMatcher = addressPattern.matcher(text);
         if (addressMatcher.find()) {
-            String address = addressMatcher.group(1).trim().replaceAll("\\n", ", ");
-            addFieldWithConfidence(data, "address", address, 0.75f);
+            String address = cleanText(addressMatcher.group(1).trim().replaceAll("\\n", ", "));
+            if (!address.isEmpty()) {
+                addFieldWithConfidence(data, "address", address, 0.75f);
+            }
         }
         
         return data;
@@ -260,28 +264,50 @@ public class OcrService {
             addFieldWithConfidence(data, "pan_number", panNumber, 0.9f);
         }
         
-        // Extract name
-        Pattern namePattern = Pattern.compile("(?i)(?:Name|नाम)[:\\s]+([\\p{L}\\s]+)");
-        Matcher nameMatcher = namePattern.matcher(text);
-        if (nameMatcher.find()) {
-            String name = nameMatcher.group(1).trim();
-            addFieldWithConfidence(data, "name", name, 0.85f);
-        }
+        // Split text into lines for better parsing
+        String[] lines = text.split("\\n");
         
-        // Extract father's name
-        Pattern fatherPattern = Pattern.compile("(?i)(?:Father|Father's Name|पिता)[:\\s]+([\\p{L}\\s]+)");
-        Matcher fatherMatcher = fatherPattern.matcher(text);
-        if (fatherMatcher.find()) {
-            String fathersName = fatherMatcher.group(1).trim();
-            addFieldWithConfidence(data, "fathers_name", fathersName, 0.8f);
-        }
-        
-        // Extract date of birth
-        Pattern dobPattern = Pattern.compile("(?i)(?:DOB|Date of Birth|जन्म तिथि)[:\\s]+(\\d{2}/\\d{2}/\\d{4})");
-        Matcher dobMatcher = dobPattern.matcher(text);
-        if (dobMatcher.find()) {
-            String dob = dobMatcher.group(1).trim();
-            addFieldWithConfidence(data, "date_of_birth", dob, 0.85f);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            
+            // Extract name
+            if (line.contains("नाम") || line.contains("Name")) {
+                if (i + 1 < lines.length) {
+                    String nextLine = lines[i + 1].trim();
+                    // Check if next line contains only English letters and spaces
+                    if (nextLine.matches("[A-Z\\s]+")) {
+                        String name = cleanText(nextLine);
+                        if (!name.isEmpty()) {
+                            addFieldWithConfidence(data, "name", name, 0.85f);
+                        }
+                    }
+                }
+            }
+            
+            // Extract father's name
+            if (line.contains("पिता का नाम") || line.contains("Father's Name")) {
+                if (i + 1 < lines.length) {
+                    String nextLine = lines[i + 1].trim();
+                    // Check if next line contains only English letters and spaces
+                    if (nextLine.matches("[A-Z\\s]+")) {
+                        String fathersName = cleanText(nextLine);
+                        if (!fathersName.isEmpty()) {
+                            addFieldWithConfidence(data, "fathers_name", fathersName, 0.8f);
+                        }
+                    }
+                }
+            }
+            
+            // Extract date of birth
+            if (line.contains("जन्म की तारीख") || line.contains("Date of Birth")) {
+                if (i + 1 < lines.length) {
+                    String nextLine = lines[i + 1].trim();
+                    // Check if next line contains date format
+                    if (nextLine.matches("\\d{2}/\\d{2}/\\d{4}")) {
+                        addFieldWithConfidence(data, "date_of_birth", nextLine, 0.85f);
+                    }
+                }
+            }
         }
         
         return data;
@@ -308,8 +334,10 @@ public class OcrService {
         Pattern namePattern = Pattern.compile("(?i)(?:Name|नाम)[:\\s]+([\\p{L}\\s]+)");
         Matcher nameMatcher = namePattern.matcher(text);
         if (nameMatcher.find()) {
-            String name = nameMatcher.group(1).trim();
-            addFieldWithConfidence(data, "name", name, 0.85f);
+            String name = cleanText(nameMatcher.group(1).trim());
+            if (!name.isEmpty()) {
+                addFieldWithConfidence(data, "name", name, 0.85f);
+            }
         }
         
         // Extract date of birth
@@ -324,8 +352,10 @@ public class OcrService {
         Pattern addressPattern = Pattern.compile("(?i)(?:Address|पता)[:\\s]+([\\s\\S]+?)(?:\\n\\n|\\d{6}|$)");
         Matcher addressMatcher = addressPattern.matcher(text);
         if (addressMatcher.find()) {
-            String address = addressMatcher.group(1).trim().replaceAll("\\n", ", ");
-            addFieldWithConfidence(data, "address", address, 0.75f);
+            String address = cleanText(addressMatcher.group(1).trim().replaceAll("\\n", ", "));
+            if (!address.isEmpty()) {
+                addFieldWithConfidence(data, "address", address, 0.75f);
+            }
         }
         
         // Extract valid from date
@@ -420,6 +450,29 @@ public class OcrService {
         fieldData.put("value", fieldValue);
         fieldData.put("confidence", confidence);
         data.put(fieldName, fieldData);
+    }
+
+    /**
+     * Clean text by removing Devanagari characters and keeping only English text.
+     *
+     * @param text The text to clean
+     * @return The cleaned text with only English characters
+     */
+    private String cleanText(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return text;
+        }
+        
+        // Remove Devanagari characters (Unicode range: \u0900-\u097F)
+        String cleanedText = text.replaceAll("[\\u0900-\\u097F]", "");
+        
+        // Remove extra whitespace and newlines
+        cleanedText = cleanedText.replaceAll("\\s+", " ").trim();
+        
+        // Remove any remaining non-English characters except spaces, numbers, and common punctuation
+        cleanedText = cleanedText.replaceAll("[^a-zA-Z0-9\\s./-]", "");
+        
+        return cleanedText.trim();
     }
 
     /**
