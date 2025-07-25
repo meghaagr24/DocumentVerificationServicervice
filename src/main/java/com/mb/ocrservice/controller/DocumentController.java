@@ -5,8 +5,6 @@ import com.mb.ocrservice.dto.OcrResultDto;
 import com.mb.ocrservice.dto.ValidationResultDto;
 import com.mb.ocrservice.exception.DocumentUploadException;
 import com.mb.ocrservice.model.Document;
-import com.mb.ocrservice.model.OcrResult;
-import com.mb.ocrservice.model.ValidationResult;
 import com.mb.ocrservice.service.DocumentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +17,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/documents")
@@ -174,6 +171,36 @@ public class DocumentController {
     @GetMapping("/{id}/validation-result")
     public ResponseEntity<ValidationResultDto> getValidationResult(@PathVariable Integer id) {
         return ResponseEntity.ok(documentService.getValidationResult(id));
+    }
+
+    /**
+     * Get document image by storage ID and document type.
+     *
+     * @param storageId The storage ID
+     * @param documentType The document type
+     * @return The document image as a byte array
+     */
+    @GetMapping("/image/{storageId}/type/{documentType}")
+    public ResponseEntity<byte[]> getDocumentImageByStorageIdAndType(
+            @PathVariable String storageId,
+            @PathVariable String documentType) {
+        try {
+            byte[] imageData = documentService.getDocumentImageByStorageIdAndType(storageId, documentType);
+            
+            // Determine content type based on document type (assuming most are images)
+            String contentType = "image/jpeg"; // Default to JPEG
+            
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .header("Content-Disposition", "inline; filename=\"" + documentType + "_document.jpg\"")
+                    .body(imageData);
+        } catch (IllegalArgumentException e) {
+            log.error("Document not found", e);
+            return ResponseEntity.notFound().build();
+        } catch (IOException e) {
+            log.error("Failed to read document image", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 
 }
