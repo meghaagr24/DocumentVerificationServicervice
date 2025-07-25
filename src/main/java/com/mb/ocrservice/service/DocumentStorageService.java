@@ -42,6 +42,7 @@ public class DocumentStorageService {
         String uniqueFilename = UUID.randomUUID().toString() + "." + fileExtension;
         
         // Store the file
+        
         Path destinationPath = storagePath.resolve(uniqueFilename);
         try (InputStream inputStream = file.getInputStream()) {
             Files.copy(inputStream, destinationPath, StandardCopyOption.REPLACE_EXISTING);
@@ -69,7 +70,24 @@ public class DocumentStorageService {
 
         // Generate a unique filename to avoid collisions
         String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
-        String uniqueFilename = documentType+"_" +originalFilename;
+        String uniqueFilename = documentType + "_" + originalFilename;
+        
+        // Check if any file starting with the document type already exists and delete it
+        try (var stream = Files.walk(storagePath, 1)) {
+            stream.filter(path -> !Files.isDirectory(path))
+                  .filter(path -> {
+                      String fileName = path.getFileName().toString();
+                      return fileName.startsWith(documentType + "_");
+                  })
+                  .forEach(path -> {
+                      try {
+                          Files.delete(path);
+                          log.info("Deleted existing document file: {}", path);
+                      } catch (IOException e) {
+                          log.warn("Failed to delete existing file: {}", path, e);
+                      }
+                  });
+        }
         
         // Store the file
         Path destinationPath = storagePath.resolve(uniqueFilename);
@@ -80,32 +98,6 @@ public class DocumentStorageService {
         
         log.info("Stored document: {} as {}", originalFilename, destinationPath);
         return destinationPath.toString();
-    }
-
-    /**
-     * Checks if a file with the given filename exists in the specified storage location.
-     *
-     * @param filename The filename to check
-     * @param storageId The storage ID
-     * @return true if the file exists, false otherwise
-     */
-    public boolean fileExists(String filename, String storageId) {
-        Path storagePath = Paths.get(storageLocation, storageId);
-        Path filePath = storagePath.resolve(filename);
-        return Files.exists(filePath);
-    }
-
-    /**
-     * Gets the full path for a file in the specified storage location.
-     *
-     * @param filename The filename
-     * @param storageId The storage ID
-     * @return The full path to the file
-     */
-    public String getFilePath(String filename, String storageId) {
-        Path storagePath = Paths.get(storageLocation, storageId);
-        Path filePath = storagePath.resolve(filename);
-        return filePath.toString();
     }
 
     /**
@@ -136,5 +128,14 @@ public class DocumentStorageService {
             return filename.substring(lastDotIndex + 1);
         }
         return "bin"; // Default extension if none is found
+    }
+
+    /**
+     * Gets the storage location.
+     *
+     * @return The storage location
+     */
+    public String getStorageLocation() {
+        return storageLocation;
     }
 }
