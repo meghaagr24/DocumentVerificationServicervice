@@ -31,4 +31,13 @@ public interface DocumentRepository extends JpaRepository<Document, Integer> {
     Page<Document> findByStatus(String status, Pageable pageable);
     
     Optional<Document> findByFilePathAndFileName(String filePath, String fileName);
+    
+    /**
+     * Find a document by file path prefix.
+     * This is useful for S3 storage where we need to find documents by key prefix.
+     *
+     * @param filePathPrefix The file path prefix to search for
+     * @return An optional document
+     */
+    Optional<Document> findByFilePathStartingWith(String filePathPrefix);
 }

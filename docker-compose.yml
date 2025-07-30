@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  localstack:
+    container_name: localstack
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - DATA_DIR=/opt/localstack/data
+      - DEFAULT_REGION=ap-south-1
+    volumes:
+      - ./localstack-init:/docker-entrypoint-initaws.d
+      - ./tmp/localstack:/opt/localstack/data

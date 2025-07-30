@@ -32,7 +32,7 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final DocumentTypeRepository documentTypeRepository;
-    private final DocumentStorageService documentStorageService;
+    private final StorageService storageService;
     private final OcrService ocrService;
     private final ValidationService validationService;
 
@@ -40,12 +40,12 @@ public class DocumentService {
     public DocumentService(
             DocumentRepository documentRepository,
             DocumentTypeRepository documentTypeRepository,
-            DocumentStorageService documentStorageService,
+            StorageService storageService,
             OcrService ocrService,
             ValidationService validationService) {
         this.documentRepository = documentRepository;
         this.documentTypeRepository = documentTypeRepository;
-        this.documentStorageService = documentStorageService;
+        this.storageService = storageService;
         this.ocrService = ocrService;
         this.validationService = validationService;
     }
@@ -74,7 +74,7 @@ public class DocumentService {
                     ));
             
             // Store document file
-            String filePath = documentStorageService.storeDocument(file, documentTypeName);
+            String filePath = storageService.storeDocument(file, documentTypeName);
             
             // Create document entity
             Document document = new Document();
@@ -287,7 +287,7 @@ public class DocumentService {
                     ));
 
             // Store document file
-            String filePath = documentStorageService.storeDocument(file, documentTypeName, storageId);
+            String filePath = storageService.storeDocument(file, documentTypeName, storageId);
 
             // Create document entity
             Document document = new Document();
@@ -398,7 +398,7 @@ public class DocumentService {
                 .orElseThrow(() -> new IllegalArgumentException("Document not found with ID: " + id));
         
         // Delete document file
-        documentStorageService.deleteDocument(document.getFilePath());
+        storageService.deleteDocument(document.getFilePath());
         
         // Delete document entity
         documentRepository.delete(document);
@@ -492,30 +492,21 @@ public class DocumentService {
      * @throws IllegalArgumentException If the document is not found
      */
     public byte[] getDocumentImageByStorageIdAndType(String storageId, String documentType) throws IOException {
-        // Construct the storage directory path
-        String storageLocation = documentStorageService.getStorageLocation();
-        Path storageDir = Paths.get(storageLocation, storageId);
-
-        if (!Files.exists(storageDir)) {
-            throw new IllegalArgumentException("Storage directory not found: " + storageDir);
-        }
-
-        // Look for files that contain the document type in their name
-        try (var stream = Files.walk(storageDir, 1)) {
-            Optional<Path> documentFile = stream
-                    .filter(path -> !Files.isDirectory(path))
-                    .filter(path -> {
-                        String fileName = path.getFileName().toString().toLowerCase();
-                        String docType = documentType.toLowerCase();
-                        return fileName.contains(docType);
-                    })
-                    .findFirst();
-
-            if (documentFile.isEmpty()) {
-                throw new IllegalArgumentException("Document of type '" + documentType + "' not found in storage directory: " + storageDir);
+        try {
+            // For S3 or local file system, we need to find the document in the database
+            String prefix = storageId + "/" + documentType + "_";
+            
+            Optional<Document> document = documentRepository.findByFilePathStartingWith(prefix);
+            
+            if (document.isPresent()) {
+                return storageService.getDocumentContent(document.get().getFilePath());
+            } else {
+                throw new IllegalArgumentException("Document of type '" + documentType + 
+                        "' not found for storage ID: " + storageId);
             }
-
-            return Files.readAllBytes(documentFile.get());
+        } catch (IOException e) {
+            log.error("Error retrieving document image: {}", e.getMessage(), e);
+            throw e;
         }
     }
 }

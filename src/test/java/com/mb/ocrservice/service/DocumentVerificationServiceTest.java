@@ -36,8 +36,6 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -172,8 +170,14 @@ public class DocumentVerificationServiceTest {
         VerifyDocumentEvent event = new VerifyDocumentEvent("REQ123", "APP123456", applicantStorageIds, Instant.now().toString());
         
         // Process the event
-        // Use the spy to verify the saveDocumentMetadata method is called
-        doReturn(savedDocument).when(documentVerificationServiceSpy).saveDocumentMetadata(any(Document.class), any(VerifyDocumentEvent.class));
+        // Allow the real saveDocumentMetadata method to be called, but still return our savedDocument
+        doAnswer(invocation -> {
+            // Call the real method for verification purposes
+            documentVerificationServiceSpy.saveDocumentMetadata(invocation.getArgument(0), invocation.getArgument(1));
+            // But return our predefined savedDocument
+            return savedDocument;
+        }).when(documentVerificationServiceSpy).saveDocumentMetadata(any(Document.class), any(VerifyDocumentEvent.class));
+        
         documentVerificationServiceSpy.processVerifyDocumentEvent(event);
         
         // Verify saveDocumentMetadata was called for each storage ID

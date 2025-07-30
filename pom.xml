@@ -18,6 +18,8 @@
         <java.version>17</java.version>
         <google.cloud.vision.version>3.4.0</google.cloud.vision.version>
         <jackson.version>2.15.0</jackson.version>
+        <aws.sdk.version>1.12.472</aws.sdk.version>
+        <testcontainers.version>1.18.3</testcontainers.version>
     </properties>
     
     <dependencies>
@@ -72,6 +74,13 @@
             <version>1.19.0</version>
         </dependency>
         
+        <!-- AWS SDK for S3 -->
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-s3</artifactId>
+            <version>${aws.sdk.version}</version>
+        </dependency>
+        
         <!-- JSON Processing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -119,6 +128,18 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>localstack</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
