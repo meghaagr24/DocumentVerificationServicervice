@@ -59,7 +59,7 @@ fi
 # Run the application or tests
 if [[ "$ACTION" == "run" ]]; then
   echo "Running application with profile: $PROFILE"
-  mvn spring-boot:run -Dspring-boot.run.profiles=$PROFILE
+  mvn spring-boot:run -Dspring-boot.run.profiles=$PROFILE -DskipTests
 elif [[ "$ACTION" == "test" ]]; then
   echo "Running tests with profile: $PROFILE"
   mvn test -Dspring.profiles.active=$PROFILE
