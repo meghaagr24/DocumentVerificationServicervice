@@ -30,26 +30,26 @@ public class DocumentController {
         this.documentService = documentService;
     }
 
-    /**
-     * Upload a document for OCR processing.
-     *
-     * @param file The document file
-     * @param documentType The type of the document
-     * @return The created document
-     */
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<DocumentDto> uploadDocumentWithProcessing(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam("documentType") String documentType) {
-        try {
-            Document document = documentService.uploadAndProcessDocument(file, documentType);
-            return ResponseEntity.status(HttpStatus.CREATED).body(documentService.convertToDto(document));
-        } catch (DocumentUploadException e) {
-            log.error("Document upload failed: {}", e.getMessage(), e);
-            // The GlobalExceptionHandler will handle this exception and return proper error response
-            throw e;
-        }
-    }
+//    /**
+//     * Upload a document for OCR processing.
+//     *
+//     * @param file The document file
+//     * @param documentType The type of the document
+//     * @return The created document
+//     */
+//    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+//    public ResponseEntity<DocumentDto> uploadDocumentWithProcessing(
+//            @RequestParam("file") MultipartFile file,
+//            @RequestParam("documentType") String documentType) {
+//        try {
+//            Document document = documentService.uploadAndProcessDocument(file, documentType);
+//            return ResponseEntity.status(HttpStatus.CREATED).body(documentService.convertToDto(document));
+//        } catch (DocumentUploadException e) {
+//            log.error("Document upload failed: {}", e.getMessage(), e);
+//            // The GlobalExceptionHandler will handle this exception and return proper error response
+//            throw e;
+//        }
+//    }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<DocumentDto> upload(

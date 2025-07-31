@@ -21,14 +21,11 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Service responsible for processing document verification requests.
@@ -37,9 +34,6 @@ import java.util.concurrent.CompletableFuture;
 @Service
 @Slf4j
 public class DocumentVerificationService {
-
-    @Value("${document.storage.location}")
-    private String storageLocation;
 
     @Value("${kafka.topic.document-verification-completed:document-verification-completed}")
     private String documentVerificationCompletedTopic;
@@ -50,6 +44,7 @@ public class DocumentVerificationService {
     private final AuditLogRepository auditLogRepository;
     private final KafkaTemplate<String, DocumentVerificationCompletedEvent> kafkaTemplate;
     private final KafkaTemplate<String, DocumentVerificationErrorEvent> errorKafkaTemplate;
+    private final StorageService storageService;
 
     @Autowired
     public DocumentVerificationService(
@@ -58,13 +53,15 @@ public class DocumentVerificationService {
             DocumentRepository documentRepository,
             AuditLogRepository auditLogRepository,
             KafkaTemplate<String, DocumentVerificationCompletedEvent> completedEventKafkaTemplate,
-            KafkaTemplate<String, DocumentVerificationErrorEvent> errorEventKafkaTemplate) {
+            KafkaTemplate<String, DocumentVerificationErrorEvent> errorEventKafkaTemplate,
+            StorageService storageService) {
         this.documentService = documentService;
         this.documentTypeRepository = documentTypeRepository;
         this.documentRepository = documentRepository;
         this.auditLogRepository = auditLogRepository;
         this.kafkaTemplate = completedEventKafkaTemplate;
         this.errorKafkaTemplate = errorEventKafkaTemplate;
+        this.storageService = storageService;
     }
 
     /**
@@ -152,102 +149,6 @@ public class DocumentVerificationService {
     }
     
     /**
-     * Processes a document for a specific storage ID and customer ID.
-     *
-     * @param event The original verify-document event
-     * @param storageId The storage ID to process
-     * @param customerId The customer ID associated with the storage ID
-     * @param completedEvent The completed event to populate with results
-     * @throws IOException If an error occurs during file operations
-     */
-    private void processDocumentForStorageId(
-            VerifyDocumentEvent event,
-            String storageId,
-            String customerId,
-            DocumentVerificationCompletedEvent completedEvent) throws IOException {
-        
-        log.info("Processing document for storage ID: {}, customer ID: {}", storageId, customerId);
-        
-        // Find PAN card document in the storage directory
-        Path storageDir = Paths.get(storageLocation, storageId);
-        if (!Files.exists(storageDir)) {
-            throw new IOException("Storage directory not found: " + storageDir);
-        }
-        
-        // Look for PAN card documents
-        Optional<Path> panCardPath = Files.walk(storageDir, 1)
-                .filter(path -> !Files.isDirectory(path))
-                .filter(path -> path.getFileName().toString().toLowerCase().contains("pan"))
-                .findFirst();
-        
-        if (panCardPath.isEmpty()) {
-            throw new IOException("PAN card document not found in storage directory: " + storageDir);
-        }
-        
-        // Get PAN document type
-        DocumentType panDocumentType = documentTypeRepository.findByName("PAN")
-                .orElseThrow(() -> new IllegalStateException("PAN document type not found in database"));
-        
-        // Create document entity
-        Document document = new Document();
-        document.setDocumentType(panDocumentType);
-        document.setFileName(panCardPath.get().getFileName().toString());
-        document.setFilePath(panCardPath.get().toString());
-        document.setFileSize(Files.size(panCardPath.get()));
-        document.setMimeType(Files.probeContentType(panCardPath.get()));
-        document.setStatus(Document.Status.PENDING.name());
-        
-        // Save document metadata in a separate transaction to ensure it's committed
-        Document savedDocument = saveDocumentMetadata(document, event);
-        
-        // Process document synchronously, but use the async method from DocumentService
-        log.info("Processing document with ID: {}", savedDocument.getId());
-        documentService.processDocumentAsync(savedDocument.getId()).join();
-        
-        // Get OCR and validation results
-        OcrResultDto ocrResult = documentService.getOcrResult(savedDocument.getId());
-        ValidationResultDto validationResult = documentService.getValidationResult(savedDocument.getId());
-
-        // Create audit log for document processed
-        createAuditLog("DOCUMENT_PROCESSED",
-                "Processed document: " + savedDocument.getId() + " for customer: " + customerId,
-                event.getApplicationId(),
-                event.getEventId());
-        
-        // Create a customer document result
-        DocumentVerificationCompletedEvent.CustomerDocumentResult result =
-                DocumentVerificationCompletedEvent.CustomerDocumentResult.builder()
-                .documentId(savedDocument.getId())
-                .storageId(storageId)
-                .documentType(savedDocument.getDocumentType().getName())
-                .isAuthentic(validationResult.getAuthentic())
-                .isComplete(validationResult.getComplete())
-                .confidenceScore(validationResult.getOverallConfidenceScore())
-                .rawText(ocrResult.getRawText())
-                .extractedData(ocrResult.getStructuredData())
-                .verificationDetails(validationResult.getValidationDetails())
-                .build();
-        
-        // Add the result to the completed event
-        completedEvent.addCustomerResult(customerId, result);
-        
-        // For backward compatibility, set the fields in the completed event
-//        if (completedEvent.getStorageId() == null) {
-//            completedEvent.setStorageId(storageId);
-//            completedEvent.setDocumentId(savedDocument.getId());
-//            completedEvent.setDocumentType(savedDocument.getDocumentType().getName());
-//            completedEvent.setIsAuthentic(validationResult.getAuthentic());
-//            completedEvent.setIsComplete(validationResult.getComplete());
-//            completedEvent.setConfidenceScore(validationResult.getOverallConfidenceScore());
-//            completedEvent.setRawText(ocrResult.getRawText());
-//            completedEvent.setExtractedData(ocrResult.getStructuredData());
-//            completedEvent.setVerificationDetails(validationResult.getValidationDetails());
-//        }
-//
-        log.info("Completed processing document for storage ID: {}, customer ID: {}", storageId, customerId);
-    }
-    
-    /**
      * Processes a document for a specific storage ID and applicant ID with document validation.
      *
      * @param event The original verify-document event
@@ -265,41 +166,37 @@ public class DocumentVerificationService {
         log.info("Processing document with validation for storage ID: {}, applicant ID: {}, document type: {}", 
                 docDetail.getStorageId(), applicantId, docDetail.getDocumentType());
         
-        // Find document in the storage directory
-        Path storageDir = Paths.get(storageLocation, docDetail.getStorageId());
-        if (!Files.exists(storageDir)) {
-            throw new IOException("Storage directory not found: " + storageDir);
+        // Find document in the database using the storage pattern that matches how documents are stored
+        // Documents are stored with key format: storageId/documentType_originalFilename
+        String storageKeyPrefix = docDetail.getStorageId() + "/" + docDetail.getDocumentType() + "_";
+        
+        List<Document> matchingDocuments = documentRepository.findByFilePathStartingWith(storageKeyPrefix);
+        
+        if (matchingDocuments.isEmpty()) {
+            throw new IOException("Document not found with storage key prefix: " + storageKeyPrefix);
         }
         
-        // Look for documents based on document type
-        Optional<Path> documentPath = Files.walk(storageDir, 1)
-                .filter(path -> !Files.isDirectory(path))
-                .filter(path -> {
-                    String fileName = path.getFileName().toString().toLowerCase();
-                    String docType = docDetail.getDocumentType().toLowerCase();
-                    return fileName.contains(docType) || fileName.contains("pan") || fileName.contains("aadhaar");
-                })
-                .findFirst();
-        
-        if (documentPath.isEmpty()) {
-            throw new IOException("Document not found in storage directory: " + storageDir);
-        }
-        
-        // Get document type
-        DocumentType documentType = documentTypeRepository.findByName(docDetail.getDocumentType())
+        // Find the document that matches the document type exactly
+        DocumentType expectedDocumentType = documentTypeRepository.findByName(docDetail.getDocumentType())
                 .orElseThrow(() -> new IllegalStateException("Document type not found in database: " + docDetail.getDocumentType()));
         
-        // Create document entity
-        Document document = new Document();
-        document.setDocumentType(documentType);
-        document.setFileName(documentPath.get().getFileName().toString());
-        document.setFilePath(documentPath.get().toString());
-        document.setFileSize(Files.size(documentPath.get()));
-        document.setMimeType(Files.probeContentType(documentPath.get()));
-        document.setStatus(Document.Status.PENDING.name());
+        Document document = matchingDocuments.stream()
+                .filter(doc -> doc.getDocumentType().equals(expectedDocumentType))
+                .findFirst()
+                .orElse(matchingDocuments.get(0)); // Fallback to first document if no exact type match
         
-        // Save document metadata in a separate transaction to ensure it's committed
-        Document savedDocument = saveDocumentMetadata(document, event);
+        log.info("Found {} matching documents for prefix: {}, selected document ID: {}", 
+                matchingDocuments.size(), storageKeyPrefix, document.getId());
+        
+        // Update document status to pending for processing
+        document.setStatus(Document.Status.PENDING.name());
+        Document savedDocument = documentRepository.save(document);
+        
+        // Create audit log for document found and processing started
+        createAuditLog("DOCUMENT_FOUND_FOR_PROCESSING",
+                "Found document for processing: " + savedDocument.getId() + " with file path: " + savedDocument.getFilePath(),
+                event.getApplicationId(),
+                event.getEventId());
         
         // Process document synchronously, but use the async method from DocumentService
         log.info("Processing document with ID: {}", savedDocument.getId());

@@ -19,8 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,17 +36,20 @@ public class OcrService {
     private final DocumentRepository documentRepository;
     private final OcrResultRepository ocrResultRepository;
     private final ObjectMapper objectMapper;
+    private final StorageService storageService;
 
     @Autowired
     public OcrService(
             ImageAnnotatorClient imageAnnotatorClient,
             DocumentRepository documentRepository,
             OcrResultRepository ocrResultRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            StorageService storageService) {
         this.imageAnnotatorClient = imageAnnotatorClient;
         this.documentRepository = documentRepository;
         this.ocrResultRepository = ocrResultRepository;
         this.objectMapper = objectMapper;
+        this.storageService = storageService;
     }
 
     /**
@@ -81,8 +82,8 @@ public class OcrService {
             // Start processing time measurement
             long startTime = System.currentTimeMillis();
 
-            // Read document file
-            byte[] fileData = Files.readAllBytes(Paths.get(document.getFilePath()));
+            // Read document file using StorageService
+            byte[] fileData = storageService.getDocumentContent(document.getFilePath());
 
             String extractedText;
             float confidenceScore;

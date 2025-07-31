@@ -152,20 +152,20 @@ public class DocumentVerificationServiceTest {
         validationResultDto.setComplete(true);
         validationResultDto.setOverallConfidenceScore(BigDecimal.valueOf(0.85));
         
-        // Configure mocks
-        when(documentTypeRepository.findByName("PAN")).thenReturn(Optional.of(panDocumentType));
-        when(documentRepository.save(any(Document.class))).thenReturn(savedDocument);
-        when(documentService.processDocumentAsync(anyInt())).thenReturn(CompletableFuture.completedFuture(validationResult));
-        when(documentService.getOcrResult(anyInt())).thenReturn(ocrResultDto);
-        when(documentService.getValidationResult(anyInt())).thenReturn(validationResultDto);
+        // Configure mocks with lenient stubbing to avoid UnnecessaryStubbingException
+        lenient().when(documentTypeRepository.findByName("PAN")).thenReturn(Optional.of(panDocumentType));
+        lenient().when(documentRepository.save(any(Document.class))).thenReturn(savedDocument);
+        lenient().when(documentService.processDocumentAsync(anyInt())).thenReturn(CompletableFuture.completedFuture(validationResult));
+        lenient().when(documentService.getOcrResult(anyInt())).thenReturn(ocrResultDto);
+        lenient().when(documentService.getValidationResult(anyInt())).thenReturn(validationResultDto);
     }
 
     @Test
     void testProcessVerifyDocumentEvent() throws IOException {
         // Create test event with multiple storage IDs
-        Map<String, String> applicantStorageIds = new HashMap<>();
-        applicantStorageIds.put("STORAGE123456", "applicant_232R");
-        applicantStorageIds.put("STORAGE789012", "applicant_233R");
+        Map<String, VerifyDocumentEvent.DocDetailEvent> applicantStorageIds = new HashMap<>();
+        applicantStorageIds.put("applicant_232R", new VerifyDocumentEvent.DocDetailEvent("STORAGE123456", "PAN", "ABCDE1234F"));
+        applicantStorageIds.put("applicant_233R", new VerifyDocumentEvent.DocDetailEvent("STORAGE789012", "PAN", "HCJPD1913B"));
         
         VerifyDocumentEvent event = new VerifyDocumentEvent("REQ123", "APP123456", applicantStorageIds, Instant.now().toString());
         
@@ -204,5 +204,234 @@ public class DocumentVerificationServiceTest {
                    evt.getCustomerResults().containsKey("applicant_232R") &&
                    evt.getCustomerResults().containsKey("applicant_233R");
         }));
+    }
+    
+    @Test
+    void testExtractDocumentNumber_PanCard_WithUnderscoreKey() {
+        // Create OCR result with pan_number key (underscore format)
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        Map<String, Object> panNumberData = new HashMap<>();
+        panNumberData.put("value", "HCJPD1913B");
+        panNumberData.put("confidence", 0.9);
+        structuredData.put("pan_number", panNumberData);
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify the correct PAN number is extracted
+        assertEquals("HCJPD1913B", extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_PanCard_WithCamelCaseKey() {
+        // Create OCR result with panNumber key (camelCase format)
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        Map<String, Object> panNumberData = new HashMap<>();
+        panNumberData.put("value", "ABCDE1234F");
+        panNumberData.put("confidence", 0.85);
+        structuredData.put("panNumber", panNumberData);
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PANCARD");
+        
+        // Verify the correct PAN number is extracted
+        assertEquals("ABCDE1234F", extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_PanCard_PreferUnderscoreOverCamelCase() {
+        // Create OCR result with both pan_number and panNumber keys
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        
+        // Add pan_number (should be preferred)
+        Map<String, Object> panNumberUnderscoreData = new HashMap<>();
+        panNumberUnderscoreData.put("value", "HCJPD1913B");
+        panNumberUnderscoreData.put("confidence", 0.9);
+        structuredData.put("pan_number", panNumberUnderscoreData);
+        
+        // Add panNumber (should be fallback)
+        Map<String, Object> panNumberCamelData = new HashMap<>();
+        panNumberCamelData.put("value", "ABCDE1234F");
+        panNumberCamelData.put("confidence", 0.8);
+        structuredData.put("panNumber", panNumberCamelData);
+        
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify that pan_number is preferred over panNumber
+        assertEquals("HCJPD1913B", extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_AadhaarCard_WithUnderscoreKey() {
+        // Create OCR result with aadhaar_number key
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        Map<String, Object> aadhaarNumberData = new HashMap<>();
+        aadhaarNumberData.put("value", "1234 5678 9012");
+        aadhaarNumberData.put("confidence", 0.95);
+        structuredData.put("aadhaar_number", aadhaarNumberData);
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "AADHAAR");
+        
+        // Verify the correct Aadhaar number is extracted
+        assertEquals("1234 5678 9012", extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_ComplexStructuredData() {
+        // Create OCR result similar to your example
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        
+        // Add name
+        Map<String, Object> nameData = new HashMap<>();
+        nameData.put("value", "TEEKA RAM");
+        nameData.put("confidence", 0.85);
+        structuredData.put("name", nameData);
+        
+        // Add pan_number
+        Map<String, Object> panNumberData = new HashMap<>();
+        panNumberData.put("value", "HCJPD1913B");
+        panNumberData.put("confidence", 0.9);
+        structuredData.put("pan_number", panNumberData);
+        
+        // Add fathers_name
+        Map<String, Object> fathersNameData = new HashMap<>();
+        fathersNameData.put("value", "TEEKA RAM");
+        fathersNameData.put("confidence", 0.8);
+        structuredData.put("fathers_name", fathersNameData);
+        
+        // Add date_of_birth
+        Map<String, Object> dobData = new HashMap<>();
+        dobData.put("value", "01/01/1972");
+        dobData.put("confidence", 0.85);
+        structuredData.put("date_of_birth", dobData);
+        
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify the correct PAN number is extracted from complex data
+        assertEquals("HCJPD1913B", extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_NullStructuredData() {
+        // Create OCR result with null structured data
+        OcrResultDto ocrResult = new OcrResultDto();
+        ocrResult.setStructuredData(null);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify null is returned
+        assertNull(extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_EmptyStructuredData() {
+        // Create OCR result with empty structured data
+        OcrResultDto ocrResult = new OcrResultDto();
+        ocrResult.setStructuredData(new HashMap<>());
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify null is returned
+        assertNull(extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_MissingPanNumberKey() {
+        // Create OCR result without pan_number or panNumber keys
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        Map<String, Object> nameData = new HashMap<>();
+        nameData.put("value", "TEEKA RAM");
+        nameData.put("confidence", 0.85);
+        structuredData.put("name", nameData);
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify null is returned when PAN number key is missing
+        assertNull(extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_EmptyPanNumberValue() {
+        // Create OCR result with empty PAN number value
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        Map<String, Object> panNumberData = new HashMap<>();
+        panNumberData.put("value", "");
+        panNumberData.put("confidence", 0.9);
+        structuredData.put("pan_number", panNumberData);
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify null is returned for empty value
+        assertNull(extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_WhitespaceOnlyPanNumberValue() {
+        // Create OCR result with whitespace-only PAN number value
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        Map<String, Object> panNumberData = new HashMap<>();
+        panNumberData.put("value", "   ");
+        panNumberData.put("confidence", 0.9);
+        structuredData.put("pan_number", panNumberData);
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify null is returned for whitespace-only value
+        assertNull(extractedNumber);
+    }
+    
+    @Test
+    void testExtractDocumentNumber_DirectStringValue() {
+        // Create OCR result with direct string value (not nested map)
+        OcrResultDto ocrResult = new OcrResultDto();
+        Map<String, Object> structuredData = new HashMap<>();
+        structuredData.put("pan_number", "HCJPD1913B");
+        ocrResult.setStructuredData(structuredData);
+        
+        // Use reflection to call the private method
+        String extractedNumber = invokeExtractDocumentNumber(ocrResult, "PAN");
+        
+        // Verify the direct string value is extracted
+        assertEquals("HCJPD1913B", extractedNumber);
+    }
+    
+    /**
+     * Helper method to invoke the private extractDocumentNumber method using reflection
+     */
+    private String invokeExtractDocumentNumber(OcrResultDto ocrResult, String documentType) {
+        try {
+            java.lang.reflect.Method method = DocumentVerificationService.class.getDeclaredMethod(
+                "extractDocumentNumber", OcrResultDto.class, String.class);
+            method.setAccessible(true);
+            return (String) method.invoke(documentVerificationService, ocrResult, documentType);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to invoke extractDocumentNumber method", e);
+        }
     }
 }

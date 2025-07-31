@@ -33,11 +33,11 @@ public interface DocumentRepository extends JpaRepository<Document, Integer> {
     Optional<Document> findByFilePathAndFileName(String filePath, String fileName);
     
     /**
-     * Find a document by file path prefix.
+     * Find documents by file path prefix.
      * This is useful for S3 storage where we need to find documents by key prefix.
      *
      * @param filePathPrefix The file path prefix to search for
-     * @return An optional document
+     * @return A list of documents matching the prefix
      */
-    Optional<Document> findByFilePathStartingWith(String filePathPrefix);
+    List<Document> findByFilePathStartingWith(String filePathPrefix);
 }

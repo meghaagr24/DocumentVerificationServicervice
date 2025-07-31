@@ -20,9 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -48,73 +46,6 @@ public class DocumentService {
         this.storageService = storageService;
         this.ocrService = ocrService;
         this.validationService = validationService;
-    }
-
-    /**
-     * Upload and process a document.
-     *
-     * @param file The document file
-     * @param documentTypeName The type of the document
-     * @return The created document
-     * @throws DocumentUploadException If an error occurs during document upload
-     */
-    @Transactional
-    public Document uploadAndProcessDocument(MultipartFile file, String documentTypeName) throws DocumentUploadException {
-        try {
-            // Validate file
-            validateFile(file);
-            
-            // Find document type
-            DocumentType documentType = documentTypeRepository.findByName(documentTypeName)
-                    .orElseThrow(() -> new DocumentUploadException(
-                            "Document type '" + documentTypeName + "' is not supported",
-                            "INVALID_DOCUMENT_TYPE",
-                            documentTypeName,
-                            file.getOriginalFilename()
-                    ));
-            
-            // Store document file
-            String filePath = storageService.storeDocument(file, documentTypeName);
-            
-            // Create document entity
-            Document document = new Document();
-            document.setDocumentType(documentType);
-            document.setFileName(file.getOriginalFilename());
-            document.setFilePath(filePath);
-            document.setFileSize(file.getSize());
-            document.setMimeType(file.getContentType());
-            document.setStatus(Document.Status.PENDING.name());
-            
-            // Save document
-            Document savedDocument = documentRepository.save(document);
-            
-            // Process document asynchronously
-            processDocumentAsync(savedDocument.getId());
-            
-            log.info("Document uploaded and processing started successfully: {}", savedDocument.getId());
-            return savedDocument;
-            
-        } catch (DocumentUploadException e) {
-            throw e; // Re-throw DocumentUploadException as-is
-        } catch (IOException e) {
-            log.error("Failed to store document file: {}", e.getMessage(), e);
-            throw new DocumentUploadException(
-                    "Failed to store document file: " + e.getMessage(),
-                    "FILE_STORAGE_ERROR",
-                    documentTypeName,
-                    file.getOriginalFilename(),
-                    e
-            );
-        } catch (Exception e) {
-            log.error("Unexpected error during document upload: {}", e.getMessage(), e);
-            throw new DocumentUploadException(
-                    "Unexpected error during document upload: " + e.getMessage(),
-                    "UPLOAD_ERROR",
-                    documentTypeName,
-                    file.getOriginalFilename(),
-                    e
-            );
-        }
     }
 
     /**
@@ -496,10 +427,10 @@ public class DocumentService {
             // For S3 or local file system, we need to find the document in the database
             String prefix = storageId + "/" + documentType + "_";
             
-            Optional<Document> document = documentRepository.findByFilePathStartingWith(prefix);
+            List<Document> document = documentRepository.findByFilePathStartingWith(prefix);
             
-            if (document.isPresent()) {
-                return storageService.getDocumentContent(document.get().getFilePath());
+            if (!document.isEmpty()) {
+                return storageService.getDocumentContent(document.get(0).getFilePath());
             } else {
                 throw new IllegalArgumentException("Document of type '" + documentType + 
                         "' not found for storage ID: " + storageId);
