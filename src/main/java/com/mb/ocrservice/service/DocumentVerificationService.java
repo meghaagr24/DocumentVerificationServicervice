@@ -1,6 +1,7 @@
 package com.mb.ocrservice.service;
 
 import com.mb.ocrservice.dto.DocumentVerificationCompletedEvent;
+import com.mb.ocrservice.dto.DocumentVerificationErrorEvent;
 import com.mb.ocrservice.dto.OcrResultDto;
 import com.mb.ocrservice.dto.ValidationResultDto;
 import com.mb.ocrservice.dto.VerifyDocumentEvent;
@@ -48,6 +49,7 @@ public class DocumentVerificationService {
     private final DocumentRepository documentRepository;
     private final AuditLogRepository auditLogRepository;
     private final KafkaTemplate<String, DocumentVerificationCompletedEvent> kafkaTemplate;
+    private final KafkaTemplate<String, DocumentVerificationErrorEvent> errorKafkaTemplate;
 
     @Autowired
     public DocumentVerificationService(
@@ -55,12 +57,14 @@ public class DocumentVerificationService {
             DocumentTypeRepository documentTypeRepository,
             DocumentRepository documentRepository,
             AuditLogRepository auditLogRepository,
-            KafkaTemplate<String, DocumentVerificationCompletedEvent> kafkaTemplate) {
+            KafkaTemplate<String, DocumentVerificationCompletedEvent> completedEventKafkaTemplate,
+            KafkaTemplate<String, DocumentVerificationErrorEvent> errorEventKafkaTemplate) {
         this.documentService = documentService;
         this.documentTypeRepository = documentTypeRepository;
         this.documentRepository = documentRepository;
         this.auditLogRepository = auditLogRepository;
-        this.kafkaTemplate = kafkaTemplate;
+        this.kafkaTemplate = completedEventKafkaTemplate;
+        this.errorKafkaTemplate = errorEventKafkaTemplate;
     }
 
     /**
@@ -76,7 +80,7 @@ public class DocumentVerificationService {
             // Create audit log for event received
             createAuditLog("VERIFY_DOCUMENT_EVENT_RECEIVED",
                     "Received verify-document event for application: " + event.getApplicationId() +
-                    ", with " + event.getApplicantStorageIds().size() + " storage IDs",
+                    ", with " + event.getApplicantStorageIds().size() + " document details",
                     event.getApplicationId(),
                     event.getEventId());
             
@@ -89,26 +93,27 @@ public class DocumentVerificationService {
                     .build();
             
             // For backward compatibility
-            if (event.getApplicantStorageIds().isEmpty() && event.getStorageId() != null) {
-                // Add the storageId to applicantStorageIds with a default customer ID
-                event.getApplicantStorageIds().put(event.getStorageId(), "default");
-            }
-            
-            // Process each storage ID
+//            if (event.getApplicantStorageIds().isEmpty() && event.getStorageId() != null) {
+//                // Add the storageId to applicantStorageIds with a default customer ID
+//                VerifyDocumentEvent.DocDetailEvent docDetail = new VerifyDocumentEvent.DocDetailEvent(event.getStorageId(), "UNKNOWN", null);
+//                event.getApplicantStorageIds().put("default", docDetail);
+//            }
+//
+            // Process each document detail
             boolean hasErrors = false;
-            for (Map.Entry<String, String> entry : event.getApplicantStorageIds().entrySet()) {
-                String customerId = entry.getKey();
-                String storageId = entry.getValue();
+            for (Map.Entry<String, VerifyDocumentEvent.DocDetailEvent> entry : event.getApplicantStorageIds().entrySet()) {
+                String applicantId = entry.getKey();
+                VerifyDocumentEvent.DocDetailEvent docDetail = entry.getValue();
                 
                 try {
-                    // Process the document for this storage ID and customer ID
-                    processDocumentForStorageId(event, storageId, customerId, completedEvent);
+                    // Process the document for this storage ID and applicant ID with validation
+                    processDocumentWithValidation(event, docDetail, applicantId, completedEvent);
                 } catch (Exception e) {
-                    log.error("Error processing document for storage ID: {}, customer ID: {}", storageId, customerId, e);
+                    log.error("Error processing document for storage ID: {}, applicant ID: {}", docDetail.getStorageId(), applicantId, e);
                     
                     // Create audit log for error
                     createAuditLog("DOCUMENT_PROCESSING_ERROR",
-                            "Error processing document for storage ID: " + storageId + ", customer ID: " + customerId + ": " + e.getMessage(),
+                            "Error processing document for storage ID: " + docDetail.getStorageId() + ", applicant ID: " + applicantId + ": " + e.getMessage(),
                             event.getApplicationId(),
                             event.getEventId());
                     
@@ -243,6 +248,116 @@ public class DocumentVerificationService {
     }
     
     /**
+     * Processes a document for a specific storage ID and applicant ID with document validation.
+     *
+     * @param event The original verify-document event
+     * @param docDetail The document details containing storageId, documentType, and documentId
+     * @param applicantId The applicant ID associated with the document
+     * @param completedEvent The completed event to populate with results
+     * @throws IOException If an error occurs during file operations
+     */
+    private void processDocumentWithValidation(
+            VerifyDocumentEvent event,
+            VerifyDocumentEvent.DocDetailEvent docDetail,
+            String applicantId,
+            DocumentVerificationCompletedEvent completedEvent) throws IOException {
+        
+        log.info("Processing document with validation for storage ID: {}, applicant ID: {}, document type: {}", 
+                docDetail.getStorageId(), applicantId, docDetail.getDocumentType());
+        
+        // Find document in the storage directory
+        Path storageDir = Paths.get(storageLocation, docDetail.getStorageId());
+        if (!Files.exists(storageDir)) {
+            throw new IOException("Storage directory not found: " + storageDir);
+        }
+        
+        // Look for documents based on document type
+        Optional<Path> documentPath = Files.walk(storageDir, 1)
+                .filter(path -> !Files.isDirectory(path))
+                .filter(path -> {
+                    String fileName = path.getFileName().toString().toLowerCase();
+                    String docType = docDetail.getDocumentType().toLowerCase();
+                    return fileName.contains(docType) || fileName.contains("pan") || fileName.contains("aadhaar");
+                })
+                .findFirst();
+        
+        if (documentPath.isEmpty()) {
+            throw new IOException("Document not found in storage directory: " + storageDir);
+        }
+        
+        // Get document type
+        DocumentType documentType = documentTypeRepository.findByName(docDetail.getDocumentType())
+                .orElseThrow(() -> new IllegalStateException("Document type not found in database: " + docDetail.getDocumentType()));
+        
+        // Create document entity
+        Document document = new Document();
+        document.setDocumentType(documentType);
+        document.setFileName(documentPath.get().getFileName().toString());
+        document.setFilePath(documentPath.get().toString());
+        document.setFileSize(Files.size(documentPath.get()));
+        document.setMimeType(Files.probeContentType(documentPath.get()));
+        document.setStatus(Document.Status.PENDING.name());
+        
+        // Save document metadata in a separate transaction to ensure it's committed
+        Document savedDocument = saveDocumentMetadata(document, event);
+        
+        // Process document synchronously, but use the async method from DocumentService
+        log.info("Processing document with ID: {}", savedDocument.getId());
+        documentService.processDocumentAsync(savedDocument.getId()).join();
+        
+        // Get OCR and validation results
+        OcrResultDto ocrResult = documentService.getOcrResult(savedDocument.getId());
+        ValidationResultDto validationResult = documentService.getValidationResult(savedDocument.getId());
+        
+        // Perform document validation
+        boolean validationPassed = validateDocumentNumber(ocrResult, docDetail);
+        
+        if (!validationPassed) {
+            // Publish error event for document validation failure
+            publishDocumentValidationErrorEvent(event, docDetail, applicantId, ocrResult);
+            
+            // Create audit log for validation failure
+            createAuditLog("DOCUMENT_VALIDATION_FAILED",
+                    "Document validation failed for storage ID: " + docDetail.getStorageId() + 
+                    ", expected: " + docDetail.getDocumentId() + 
+                    ", extracted: " + extractDocumentNumber(ocrResult, docDetail.getDocumentType()),
+                    event.getApplicationId(),
+                    event.getEventId());
+            
+            throw new RuntimeException("Document validation failed: Expected " + docDetail.getDocumentId() + 
+                    ", but extracted " + extractDocumentNumber(ocrResult, docDetail.getDocumentType()));
+        }
+        else {
+
+            // Create audit log for document processed successfully
+            createAuditLog("DOCUMENT_PROCESSED_SUCCESSFULLY",
+                    "Processed and validated document: " + savedDocument.getId() + " for applicant: " + applicantId,
+                    event.getApplicationId(),
+                    event.getEventId());
+
+            // Create a customer document result
+            DocumentVerificationCompletedEvent.CustomerDocumentResult result =
+                    DocumentVerificationCompletedEvent.CustomerDocumentResult.builder()
+                            .documentId(savedDocument.getId())
+                            .storageId(docDetail.getStorageId())
+                            .documentType(savedDocument.getDocumentType().getName())
+                            .isAuthentic(validationResult.getAuthentic())
+                            .isComplete(validationResult.getComplete())
+                            .confidenceScore(validationResult.getOverallConfidenceScore())
+                            .rawText(ocrResult.getRawText())
+                            .extractedData(ocrResult.getStructuredData())
+                            .verificationDetails(validationResult.getValidationDetails())
+                            .build();
+
+            // Add the result to the completed event
+            completedEvent.addCustomerResult(applicantId, result);
+
+            log.info("Completed processing document with validation for storage ID: {}, applicant ID: {}",
+                    docDetail.getStorageId(), applicantId);
+        }
+    }
+    
+    /**
      * Saves document metadata in a separate transaction to ensure it's committed
      * before processing.
      *
@@ -318,5 +433,148 @@ public class DocumentVerificationService {
         Map<String, Object> errorMap = new HashMap<>();
         errorMap.put("error", errorMessage);
         return errorMap;
+    }
+    
+    /**
+     * Validates the extracted document number against the expected document ID.
+     *
+     * @param ocrResult The OCR result containing extracted data
+     * @param docDetail The document details containing expected document ID
+     * @return true if validation passes, false otherwise
+     */
+    private boolean validateDocumentNumber(OcrResultDto ocrResult, VerifyDocumentEvent.DocDetailEvent docDetail) {
+        String expectedDocumentId = docDetail.getDocumentId();
+        String extractedDocumentId = extractDocumentNumber(ocrResult, docDetail.getDocumentType());
+        
+        if (expectedDocumentId == null || extractedDocumentId == null) {
+            return false;
+        }
+        
+        // Normalize both strings for comparison (remove spaces, convert to uppercase)
+        String normalizedExpected = expectedDocumentId.replaceAll("\\s+", "").toUpperCase();
+        String normalizedExtracted = extractedDocumentId.replaceAll("\\s+", "").toUpperCase();
+        
+        return normalizedExpected.equals(normalizedExtracted);
+    }
+    
+    /**
+     * Extracts the document number from OCR result based on document type.
+     *
+     * @param ocrResult The OCR result containing extracted data
+     * @param documentType The type of document (PANCARD, AADHAR, etc.)
+     * @return The extracted document number or null if not found
+     */
+    private String extractDocumentNumber(OcrResultDto ocrResult, String documentType) {
+        Map<String, Object> structuredData = ocrResult.getStructuredData();
+        
+        if (structuredData == null) {
+            return null;
+        }
+        
+        switch (documentType.toUpperCase()) {
+            case "PANCARD":
+            case "PAN":
+                // Try pan_number first (with underscore), then panNumber (camelCase)
+                String panNumber = extractFieldValue(structuredData, "pan_number");
+                if (panNumber == null) {
+                    panNumber = extractFieldValue(structuredData, "panNumber");
+                }
+                return panNumber;
+            case "AADHAR":
+            case "AADHAAR":
+                // Try aadhaar_number first (with underscore), then aadhaarNumber (camelCase)
+                String aadhaarNumber = extractFieldValue(structuredData, "aadhaar_number");
+                if (aadhaarNumber == null) {
+                    aadhaarNumber = extractFieldValue(structuredData, "aadhaarNumber");
+                }
+                return aadhaarNumber;
+            default:
+                // Try common field names
+                String docNumber = extractFieldValue(structuredData, "document_number");
+                if (docNumber == null) {
+                    docNumber = extractFieldValue(structuredData, "documentNumber");
+                }
+                if (docNumber == null) {
+                    docNumber = extractFieldValue(structuredData, "number");
+                }
+                return docNumber;
+        }
+    }
+    
+    /**
+     * Extracts a field value from structured data, handling nested maps with value and confidence.
+     *
+     * @param structuredData The structured data map
+     * @param fieldName The field name to extract
+     * @return The field value or null if not found
+     */
+    private String extractFieldValue(Map<String, Object> structuredData, String fieldName) {
+        try {
+            Object fieldObj = structuredData.get(fieldName);
+            if (fieldObj == null) {
+                return null;
+            }
+            
+            // If it's a nested map with value and confidence
+            if (fieldObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> fieldMap = (Map<String, Object>) fieldObj;
+                Object value = fieldMap.get("value");
+                if (value instanceof String) {
+                    String stringValue = (String) value;
+                    return stringValue.trim().isEmpty() ? null : stringValue;
+                }
+            }
+            
+            // If it's a direct string value
+            if (fieldObj instanceof String) {
+                String stringValue = (String) fieldObj;
+                return stringValue.trim().isEmpty() ? null : stringValue;
+            }
+            
+            return null;
+        } catch (Exception e) {
+            log.warn("Error extracting field '{}' from structured data", fieldName, e);
+            return null;
+        }
+    }
+    
+    /**
+     * Publishes a document validation error event to Kafka.
+     *
+     * @param originalEvent The original verify-document event
+     * @param docDetail The document details
+     * @param applicantId The applicant ID
+     * @param ocrResult The OCR result
+     */
+    private void publishDocumentValidationErrorEvent(
+            VerifyDocumentEvent originalEvent,
+            VerifyDocumentEvent.DocDetailEvent docDetail,
+            String applicantId,
+            OcrResultDto ocrResult) {
+        
+        try {
+            DocumentVerificationErrorEvent errorEvent = DocumentVerificationErrorEvent.builder()
+                    .eventId(java.util.UUID.randomUUID().toString())
+                    .applicationId(originalEvent.getApplicationId())
+                    .applicantId(applicantId)
+                    .storageId(docDetail.getStorageId())
+                    .documentType(docDetail.getDocumentType())
+                    .expectedDocumentId(docDetail.getDocumentId())
+                    .extractedDocumentId(extractDocumentNumber(ocrResult, docDetail.getDocumentType()))
+                    .errorMessage("Document validation failed: Expected " + docDetail.getDocumentId() + 
+                            ", but extracted " + extractDocumentNumber(ocrResult, docDetail.getDocumentType()))
+                    .build();
+            
+            // Publish to error topic
+            String errorTopic = "document-verification-error";
+            errorKafkaTemplate.send(errorTopic, errorEvent);
+            
+            log.info("Published document validation error event for application: {}, applicant: {}", 
+                    originalEvent.getApplicationId(), applicantId);
+            
+        } catch (Exception e) {
+            log.error("Error publishing document validation error event", e);
+        }
     }
 }
