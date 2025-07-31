@@ -166,27 +166,20 @@ public class DocumentVerificationService {
         log.info("Processing document with validation for storage ID: {}, applicant ID: {}, document type: {}", 
                 docDetail.getStorageId(), applicantId, docDetail.getDocumentType());
         
-        // Find document in the database using the storage pattern that matches how documents are stored
-        // Documents are stored with key format: storageId/documentType_originalFilename
-        String storageKeyPrefix = docDetail.getStorageId() + "/" + docDetail.getDocumentType() + "_";
-        
-        List<Document> matchingDocuments = documentRepository.findByFilePathStartingWith(storageKeyPrefix);
-        
-        if (matchingDocuments.isEmpty()) {
-            throw new IOException("Document not found with storage key prefix: " + storageKeyPrefix);
-        }
-        
-        // Find the document that matches the document type exactly
+        // Find document using the composite key: applicantId and documentType
         DocumentType expectedDocumentType = documentTypeRepository.findByName(docDetail.getDocumentType())
                 .orElseThrow(() -> new IllegalStateException("Document type not found in database: " + docDetail.getDocumentType()));
         
-        Document document = matchingDocuments.stream()
-                .filter(doc -> doc.getDocumentType().equals(expectedDocumentType))
-                .findFirst()
-                .orElse(matchingDocuments.get(0)); // Fallback to first document if no exact type match
+        Optional<Document> documentOptional = documentRepository.findByApplicantIdAndDocumentType(applicantId, expectedDocumentType);
         
-        log.info("Found {} matching documents for prefix: {}, selected document ID: {}", 
-                matchingDocuments.size(), storageKeyPrefix, document.getId());
+        if (documentOptional.isEmpty()) {
+            throw new IOException("Document not found for applicant ID: " + applicantId + " and document type: " + docDetail.getDocumentType());
+        }
+        
+        Document document = documentOptional.get();
+        
+        log.info("Found document for applicant ID: {}, document type: {}, document ID: {}", 
+                applicantId, docDetail.getDocumentType(), document.getId());
         
         // Update document status to pending for processing
         document.setStatus(Document.Status.PENDING.name());

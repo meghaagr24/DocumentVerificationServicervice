@@ -40,4 +40,31 @@ public interface DocumentRepository extends JpaRepository<Document, Integer> {
      * @return A list of documents matching the prefix
      */
     List<Document> findByFilePathStartingWith(String filePathPrefix);
+    
+    /**
+     * Find a document by applicant ID and document type.
+     * This uses the composite key constraint.
+     *
+     * @param applicantId The applicant ID
+     * @param documentType The document type
+     * @return An optional document
+     */
+    Optional<Document> findByApplicantIdAndDocumentType(String applicantId, DocumentType documentType);
+    
+    /**
+     * Find all documents by applicant ID.
+     *
+     * @param applicantId The applicant ID
+     * @return A list of documents for the applicant
+     */
+    List<Document> findByApplicantId(String applicantId);
+    
+    /**
+     * Find documents by applicant ID with pagination.
+     *
+     * @param applicantId The applicant ID
+     * @param pageable The pagination information
+     * @return A page of documents for the applicant
+     */
+    Page<Document> findByApplicantId(String applicantId, Pageable pageable);
 }

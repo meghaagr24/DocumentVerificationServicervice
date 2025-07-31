@@ -203,7 +203,7 @@ public class DocumentService {
     }
 
     @Transactional
-    public Document uploadDocument(MultipartFile file, String documentTypeName, String storageId) throws DocumentUploadException {
+    public Document uploadDocument(MultipartFile file, String documentTypeName, String storageId, String applicantId) throws DocumentUploadException {
         try {
             // Validate file
             validateFile(file);
@@ -223,6 +223,7 @@ public class DocumentService {
             // Create document entity
             Document document = new Document();
             document.setDocumentType(documentType);
+            document.setApplicantId(applicantId);
             document.setFileName(file.getOriginalFilename());
             document.setFilePath(filePath);
             document.setFileSize(file.getSize());

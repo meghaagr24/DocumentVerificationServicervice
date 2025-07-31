@@ -27,6 +27,9 @@ public class Document extends BaseEntity {
     @JoinColumn(name = "document_type_id", nullable = false)
     private DocumentType documentType;
 
+    @Column(name = "applicant_id")
+    private String applicantId;
+
     @NotBlank
     @Column(name = "file_name", nullable = false)
     private String fileName;
