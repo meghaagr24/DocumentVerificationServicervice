@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.util.ResourceUtils;
 
 import java.io.File;
@@ -17,6 +18,7 @@ import java.io.IOException;
 
 @Configuration
 @Slf4j
+@Profile({"default", "local", "test"})  // Active in local and test environments only
 public class GoogleVisionConfig {
     
     @Value("${google.vision.credentials-file-path}")

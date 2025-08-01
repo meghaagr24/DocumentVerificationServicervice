@@ -74,10 +74,15 @@
             <version>1.19.0</version>
         </dependency>
         
-        <!-- AWS SDK for S3 -->
+        <!-- AWS SDK for S3 and Secrets Manager -->
         <dependency>
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-s3</artifactId>
+            <version>${aws.sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-secretsmanager</artifactId>
             <version>${aws.sdk.version}</version>
         </dependency>
         
