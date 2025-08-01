@@ -217,23 +217,54 @@ public class DocumentService {
                             file.getOriginalFilename()
                     ));
 
-            // Store document file
+            // Check if document already exists for this applicant and document type
+            Optional<Document> existingDocumentOpt = documentRepository.findByApplicantIdAndDocumentType(applicantId, documentType);
+            
+            Document document;
+            boolean isUpdate = false;
+            
+            if (existingDocumentOpt.isPresent()) {
+                // Update existing document
+                document = existingDocumentOpt.get();
+                isUpdate = true;
+                
+                // Delete the old file from storage before storing the new one
+                try {
+                    storageService.deleteDocument(document.getFilePath());
+                    log.info("Deleted existing document file: {}", document.getFilePath());
+                } catch (IOException e) {
+                    log.warn("Failed to delete existing document file: {}, continuing with upload", document.getFilePath(), e);
+                }
+                
+                log.info("Updating existing document ID: {} for applicant: {} and document type: {}", 
+                        document.getId(), applicantId, documentTypeName);
+            } else {
+                // Create new document
+                document = new Document();
+                document.setDocumentType(documentType);
+                document.setApplicantId(applicantId);
+                log.info("Creating new document for applicant: {} and document type: {}", applicantId, documentTypeName);
+            }
+
+            // Store document file (new file path for both new and updated documents)
             String filePath = storageService.storeDocument(file, documentTypeName, storageId);
 
-            // Create document entity
-            Document document = new Document();
-            document.setDocumentType(documentType);
-            document.setApplicantId(applicantId);
+            // Update document properties (for both new and existing documents)
             document.setFileName(file.getOriginalFilename());
             document.setFilePath(filePath);
             document.setFileSize(file.getSize());
             document.setMimeType(file.getContentType());
             document.setStatus(Document.Status.UPLOADED.name());
             
-            // Save document
+            // Save document (insert or update)
             Document savedDocument = documentRepository.save(document);
 
-            log.info("Document uploaded successfully: {}", savedDocument.getId());
+            if (isUpdate) {
+                log.info("Document updated successfully: {}", savedDocument.getId());
+            } else {
+                log.info("Document uploaded successfully: {}", savedDocument.getId());
+            }
+            
             return savedDocument;
             
         } catch (DocumentUploadException e) {

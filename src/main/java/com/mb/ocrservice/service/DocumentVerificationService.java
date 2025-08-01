@@ -23,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -44,7 +43,6 @@ public class DocumentVerificationService {
     private final AuditLogRepository auditLogRepository;
     private final KafkaTemplate<String, DocumentVerificationCompletedEvent> kafkaTemplate;
     private final KafkaTemplate<String, DocumentVerificationErrorEvent> errorKafkaTemplate;
-    private final StorageService storageService;
 
     @Autowired
     public DocumentVerificationService(
@@ -53,15 +51,13 @@ public class DocumentVerificationService {
             DocumentRepository documentRepository,
             AuditLogRepository auditLogRepository,
             KafkaTemplate<String, DocumentVerificationCompletedEvent> completedEventKafkaTemplate,
-            KafkaTemplate<String, DocumentVerificationErrorEvent> errorEventKafkaTemplate,
-            StorageService storageService) {
+            KafkaTemplate<String, DocumentVerificationErrorEvent> errorEventKafkaTemplate) {
         this.documentService = documentService;
         this.documentTypeRepository = documentTypeRepository;
         this.documentRepository = documentRepository;
         this.auditLogRepository = auditLogRepository;
         this.kafkaTemplate = completedEventKafkaTemplate;
         this.errorKafkaTemplate = errorEventKafkaTemplate;
-        this.storageService = storageService;
     }
 
     /**
@@ -89,13 +85,6 @@ public class DocumentVerificationService {
                     .completedAt(Instant.now().toEpochMilli())
                     .build();
             
-            // For backward compatibility
-//            if (event.getApplicantStorageIds().isEmpty() && event.getStorageId() != null) {
-//                // Add the storageId to applicantStorageIds with a default customer ID
-//                VerifyDocumentEvent.DocDetailEvent docDetail = new VerifyDocumentEvent.DocDetailEvent(event.getStorageId(), "UNKNOWN", null);
-//                event.getApplicantStorageIds().put("default", docDetail);
-//            }
-//
             // Process each document detail
             boolean hasErrors = false;
             for (Map.Entry<String, VerifyDocumentEvent.DocDetailEvent> entry : event.getApplicantStorageIds().entrySet()) {
