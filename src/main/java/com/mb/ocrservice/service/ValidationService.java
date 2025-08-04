@@ -122,6 +122,21 @@ public class ValidationService {
         OcrResult ocrResult = ocrResultRepository.findByDocumentId(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("OCR result not found for document ID: " + documentId));
         
+        // Check if validation result already exists for this document
+        Optional<ValidationResult> existingValidationResult = validationResultRepository.findByDocumentId(documentId);
+        ValidationResult validationResult;
+        
+        if (existingValidationResult.isPresent()) {
+            // Use existing validation result
+            log.info("Found existing validation result for document ID: {}, updating it", documentId);
+            validationResult = existingValidationResult.get();
+        } else {
+            // Create new validation result
+            log.info("Creating new validation result for document ID: {}", documentId);
+            validationResult = new ValidationResult();
+            validationResult.setDocument(document);
+        }
+        
         String documentType = document.getDocumentType().getName();
         Map<String, Object> structuredData = ocrResult.getStructuredData();
         
@@ -147,9 +162,7 @@ public class ValidationService {
         // Create validation details
         ObjectNode validationDetails = createValidationDetails(documentType, dataNode, formatValidations);
         
-        // Create and save validation result
-        ValidationResult validationResult = new ValidationResult();
-        validationResult.setDocument(document);
+        // Update validation result with new data
         validationResult.setIsAuthentic(isAuthentic);
         validationResult.setIsComplete(isComplete);
         validationResult.setOverallConfidenceScore(overallConfidenceScore);

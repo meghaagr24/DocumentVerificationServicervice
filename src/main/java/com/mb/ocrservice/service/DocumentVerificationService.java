@@ -8,6 +8,7 @@ import com.mb.ocrservice.dto.VerifyDocumentEvent;
 import com.mb.ocrservice.model.AuditLog;
 import com.mb.ocrservice.model.Document;
 import com.mb.ocrservice.model.DocumentType;
+import com.mb.ocrservice.model.ValidationResult;
 import com.mb.ocrservice.repository.AuditLogRepository;
 import com.mb.ocrservice.repository.DocumentRepository;
 import com.mb.ocrservice.repository.DocumentTypeRepository;
@@ -38,6 +39,7 @@ public class DocumentVerificationService {
     private String documentVerificationCompletedTopic;
 
     private final DocumentService documentService;
+    private final ValidationService validationService;
     private final DocumentTypeRepository documentTypeRepository;
     private final DocumentRepository documentRepository;
     private final AuditLogRepository auditLogRepository;
@@ -47,12 +49,14 @@ public class DocumentVerificationService {
     @Autowired
     public DocumentVerificationService(
             DocumentService documentService,
+            ValidationService validationService,
             DocumentTypeRepository documentTypeRepository,
             DocumentRepository documentRepository,
             AuditLogRepository auditLogRepository,
             KafkaTemplate<String, DocumentVerificationCompletedEvent> completedEventKafkaTemplate,
             KafkaTemplate<String, DocumentVerificationErrorEvent> errorEventKafkaTemplate) {
         this.documentService = documentService;
+        this.validationService = validationService;
         this.documentTypeRepository = documentTypeRepository;
         this.documentRepository = documentRepository;
         this.auditLogRepository = auditLogRepository;
@@ -152,7 +156,7 @@ public class DocumentVerificationService {
             String applicantId,
             DocumentVerificationCompletedEvent completedEvent) throws IOException {
         
-        log.info("Processing document with validation for storage ID: {}, applicant ID: {}, document type: {}", 
+        log.info("Processing document with validation for storage ID: {}, applicant ID: {}, document type: {}",
                 docDetail.getStorageId(), applicantId, docDetail.getDocumentType());
         
         // Find document using the composite key: applicantId and documentType
@@ -167,7 +171,7 @@ public class DocumentVerificationService {
         
         Document document = documentOptional.get();
         
-        log.info("Found document for applicant ID: {}, document type: {}, document ID: {}", 
+        log.info("Found document for applicant ID: {}, document type: {}, document ID: {}",
                 applicantId, docDetail.getDocumentType(), document.getId());
         
         // Update document status to pending for processing
@@ -180,13 +184,17 @@ public class DocumentVerificationService {
                 event.getApplicationId(),
                 event.getEventId());
         
-        // Process document synchronously, but use the async method from DocumentService
+        // Process document for OCR
         log.info("Processing document with ID: {}", savedDocument.getId());
         documentService.processDocumentAsync(savedDocument.getId()).join();
         
-        // Get OCR and validation results
+        // Now explicitly validate the document
+        log.info("Validating document with ID: {}", savedDocument.getId());
+        ValidationResult validationResult = validationService.validateDocument(savedDocument.getId());
+        
+        // Get OCR result
         OcrResultDto ocrResult = documentService.getOcrResult(savedDocument.getId());
-        ValidationResultDto validationResult = documentService.getValidationResult(savedDocument.getId());
+        ValidationResultDto validationResultDto = documentService.convertToDto(validationResult);
         
         // Perform document validation
         boolean validationPassed = validateDocumentNumber(ocrResult, docDetail);
@@ -197,13 +205,13 @@ public class DocumentVerificationService {
             
             // Create audit log for validation failure
             createAuditLog("DOCUMENT_VALIDATION_FAILED",
-                    "Document validation failed for storage ID: " + docDetail.getStorageId() + 
-                    ", expected: " + docDetail.getDocumentId() + 
+                    "Document validation failed for storage ID: " + docDetail.getStorageId() +
+                    ", expected: " + docDetail.getDocumentId() +
                     ", extracted: " + extractDocumentNumber(ocrResult, docDetail.getDocumentType()),
                     event.getApplicationId(),
                     event.getEventId());
             
-            throw new RuntimeException("Document validation failed: Expected " + docDetail.getDocumentId() + 
+            throw new RuntimeException("Document validation failed: Expected " + docDetail.getDocumentId() +
                     ", but extracted " + extractDocumentNumber(ocrResult, docDetail.getDocumentType()));
         }
         else {
@@ -220,12 +228,12 @@ public class DocumentVerificationService {
                             .documentId(savedDocument.getId())
                             .storageId(docDetail.getStorageId())
                             .documentType(savedDocument.getDocumentType().getName())
-                            .isAuthentic(validationResult.getAuthentic())
-                            .isComplete(validationResult.getComplete())
-                            .confidenceScore(validationResult.getOverallConfidenceScore())
+                            .isAuthentic(validationResultDto.getAuthentic())
+                            .isComplete(validationResultDto.getComplete())
+                            .confidenceScore(validationResultDto.getOverallConfidenceScore())
                             .rawText(ocrResult.getRawText())
                             .extractedData(ocrResult.getStructuredData())
-                            .verificationDetails(validationResult.getValidationDetails())
+                            .verificationDetails(validationResultDto.getValidationDetails())
                             .build();
 
             // Add the result to the completed event

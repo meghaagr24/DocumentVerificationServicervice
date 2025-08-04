@@ -79,6 +79,21 @@ public class OcrService {
             document.setStatus(Document.Status.PROCESSING.name());
             document = documentRepository.save(document);
 
+            // Check if OCR result already exists for this document
+            Optional<OcrResult> existingOcrResult = ocrResultRepository.findByDocumentId(documentId);
+            OcrResult ocrResult;
+            
+            if (existingOcrResult.isPresent()) {
+                // Use existing OCR result
+                log.info("Found existing OCR result for document ID: {}, updating it", documentId);
+                ocrResult = existingOcrResult.get();
+            } else {
+                // Create new OCR result
+                log.info("Creating new OCR result for document ID: {}", documentId);
+                ocrResult = new OcrResult();
+                ocrResult.setDocument(document);
+            }
+
             // Start processing time measurement
             long startTime = System.currentTimeMillis();
 
@@ -143,9 +158,7 @@ public class OcrService {
                     extractedText,
                     document.getDocumentType());
 
-            // Create and save OCR result
-            OcrResult ocrResult = new OcrResult();
-            ocrResult.setDocument(document);
+            // Update OCR result with new data
             ocrResult.setRawText(extractedText);
             ocrResult.setStructuredData(structuredData);
             ocrResult.setConfidenceScore(BigDecimal.valueOf(confidenceScore));

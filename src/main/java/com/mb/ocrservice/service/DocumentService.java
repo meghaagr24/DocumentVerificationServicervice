@@ -296,9 +296,8 @@ public class DocumentService {
      * @param documentId The ID of the document to process
      * @return A CompletableFuture that will be completed when the processing is done
      */
-    public CompletableFuture<ValidationResult> processDocumentAsync(Integer documentId) {
-        return ocrService.processDocumentAsync(documentId)
-                .thenCompose(ocrResult -> validationService.validateDocumentAsync(documentId));
+    public CompletableFuture<OcrResult> processDocumentAsync(Integer documentId) {
+        return ocrService.processDocumentAsync(documentId);
     }
 
     /**
