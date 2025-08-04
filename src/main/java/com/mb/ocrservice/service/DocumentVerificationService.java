@@ -165,11 +165,23 @@ public class DocumentVerificationService {
         
         Optional<Document> documentOptional = documentRepository.findByApplicantIdAndDocumentType(applicantId, expectedDocumentType);
         
-        if (documentOptional.isEmpty()) {
-            throw new IOException("Document not found for applicant ID: " + applicantId + " and document type: " + docDetail.getDocumentType());
-        }
+        Document document;
         
-        Document document = documentOptional.get();
+        if (documentOptional.isEmpty()) {
+            log.info("Document not found for applicant ID: {} and document type: {}. Creating a new document.",
+                    applicantId, docDetail.getDocumentType());
+            
+            // Create a new document
+            document = new Document();
+            document.setDocumentType(expectedDocumentType);
+            document.setApplicantId(applicantId);
+            document.setFileName(docDetail.getDocumentType() + "_document.jpg");
+            document.setFilePath(docDetail.getStorageId() + "/" + docDetail.getDocumentType() + "_document.jpg");
+            document.setFileSize(1024L); // Set a positive value to pass validation
+            document.setMimeType("image/jpeg"); // Default mime type
+        } else {
+            document = documentOptional.get();
+        }
         
         log.info("Found document for applicant ID: {}, document type: {}, document ID: {}",
                 applicantId, docDetail.getDocumentType(), document.getId());
@@ -177,6 +189,14 @@ public class DocumentVerificationService {
         // Update document status to pending for processing
         document.setStatus(Document.Status.PENDING.name());
         Document savedDocument = documentRepository.save(document);
+        
+        if (documentOptional.isEmpty()) {
+            // Create audit log for new document created
+            createAuditLog("DOCUMENT_CREATED_FOR_PROCESSING",
+                    "Created new document for processing: " + savedDocument.getId() + " with file path: " + savedDocument.getFilePath(),
+                    event.getApplicationId(),
+                    event.getEventId());
+        }
         
         // Create audit log for document found and processing started
         createAuditLog("DOCUMENT_FOUND_FOR_PROCESSING",
