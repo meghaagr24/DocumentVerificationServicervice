@@ -51,6 +51,7 @@ public class S3StorageService implements StorageService {
     
     @Override
     public String storeDocument(MultipartFile file, String documentType, String storageId) throws IOException {
+        log.info("storing in S3 bucket {}", bucketName );
         // Generate a key for the S3 object
         String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
         String key = storageId + "/" + documentType + "_" + originalFilename;

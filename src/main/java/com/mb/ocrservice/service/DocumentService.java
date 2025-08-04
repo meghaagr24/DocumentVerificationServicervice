@@ -205,6 +205,7 @@ public class DocumentService {
     @Transactional
     public Document uploadDocument(MultipartFile file, String documentTypeName, String storageId, String applicantId) throws DocumentUploadException {
         try {
+            log.info("received upload document for applicant Id : {} and storageId : {} ",applicantId, storageId);
             // Validate file
             validateFile(file);
             
@@ -216,7 +217,7 @@ public class DocumentService {
                             documentTypeName,
                             file.getOriginalFilename()
                     ));
-
+            log.info("Check if document already exists for this applicant and document type ");
             // Check if document already exists for this applicant and document type
             Optional<Document> existingDocumentOpt = documentRepository.findByApplicantIdAndDocumentType(applicantId, documentType);
             
