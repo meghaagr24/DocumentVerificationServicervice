@@ -25,16 +25,16 @@ locals {
   full_bucket_name = "${var.bucket_name}-${var.environment}"
 }
 
-# CloudWatch Log Group for application logs
-resource "aws_cloudwatch_log_group" "app_logs" {
-  name              = "/aws/ecs/${var.project_name}-${var.environment}"
-  retention_in_days = 7
-
-  tags = {
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
+# CloudWatch Log Group removed to reduce costs
+# resource "aws_cloudwatch_log_group" "app_logs" {
+#   name              = "/aws/ecs/${var.project_name}-${var.environment}"
+#   retention_in_days = 7
+#
+#   tags = {
+#     Environment = var.environment
+#     Project     = var.project_name
+#   }
+# }
 
 # Create SSM Parameters for sharing outputs with other stacks
 resource "aws_ssm_parameter" "service_name" {

@@ -65,14 +65,15 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
       
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = local.ecs_logs_group_name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = var.project_name
-        }
-      }
+      # logConfiguration removed to reduce CloudWatch costs
+      # logConfiguration = {
+      #   logDriver = "awslogs"
+      #   options = {
+      #     "awslogs-group"         = local.ecs_logs_group_name
+      #     "awslogs-region"        = var.aws_region
+      #     "awslogs-stream-prefix" = var.project_name
+      #   }
+      # }
       
       healthCheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:${var.app_port}${var.health_check_path} || exit 1"]
@@ -123,14 +124,15 @@ resource "aws_iam_policy" "app_task_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:${var.aws_region}:*:log-group:${local.ecs_logs_group_name}:*"
-      },
+      # CloudWatch logs permissions removed to reduce costs
+      # {
+      #   Effect = "Allow"
+      #   Action = [
+      #     "logs:CreateLogStream",
+      #     "logs:PutLogEvents"
+      #   ]
+      #   Resource = "arn:aws:logs:${var.aws_region}:*:log-group:${local.ecs_logs_group_name}:*"
+      # },
       {
         Effect = "Allow"
         Action = [

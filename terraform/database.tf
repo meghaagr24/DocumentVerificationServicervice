@@ -102,16 +102,16 @@ resource "aws_iam_role_policy_attachment" "rds_monitoring_attachment" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }
 
-# Create a CloudWatch Log Group for RDS logs
-resource "aws_cloudwatch_log_group" "rds_logs" {
-  name              = "/aws/rds/instance/${var.project_name}-${var.environment}-db/postgresql"
-  retention_in_days = 7
-
-  tags = {
-    Environment = var.environment
-    Project     = var.project_name
-  }
-}
+# CloudWatch Log Group for RDS logs removed to reduce costs
+# resource "aws_cloudwatch_log_group" "rds_logs" {
+#   name              = "/aws/rds/instance/${var.project_name}-${var.environment}-db/postgresql"
+#   retention_in_days = 7
+#
+#   tags = {
+#     Environment = var.environment
+#     Project     = var.project_name
+#   }
+# }
 
 # Create SSM Parameter for the database endpoint
 resource "aws_ssm_parameter" "db_endpoint" {
