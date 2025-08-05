@@ -24,37 +24,6 @@ public class LocalFileStorageService implements StorageService {
     private String storageLocation;
 
     /**
-     * Stores a document file in the configured storage location.
-     *
-     * @param file The document file to store
-     * @param documentType The type of document (used for organizing files)
-     * @return The path where the file is stored
-     * @throws IOException If an error occurs during file storage
-     */
-    @Override
-    public String storeDocument(MultipartFile file, String documentType) throws IOException {
-        // Create storage directory if it doesn't exist
-        Path storagePath = Paths.get(storageLocation, documentType.toLowerCase());
-        if (!Files.exists(storagePath)) {
-            Files.createDirectories(storagePath);
-        }
-
-        // Generate a unique filename to avoid collisions
-        String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
-        String fileExtension = getFileExtension(originalFilename);
-        String uniqueFilename = UUID.randomUUID().toString() + "." + fileExtension;
-        
-        // Store the file
-        Path destinationPath = storagePath.resolve(uniqueFilename);
-        try (InputStream inputStream = file.getInputStream()) {
-            Files.copy(inputStream, destinationPath, StandardCopyOption.REPLACE_EXISTING);
-        }
-        
-        log.info("Stored document: {} as {}", originalFilename, destinationPath);
-        return destinationPath.toString();
-    }
-
-    /**
      * Stores a document file with the original filename, replacing if it already exists.
      *
      * @param file The document file to store
@@ -144,6 +113,11 @@ public class LocalFileStorageService implements StorageService {
     @Override
     public String getStorageLocation() {
         return storageLocation;
+    }
+
+    @Override
+    public byte[] getDocumentByTypeAndStorage(String documentType, String storageId, String key) throws IOException {
+        return new byte[0];
     }
 
     /**

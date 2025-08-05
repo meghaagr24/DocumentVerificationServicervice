@@ -11,16 +11,6 @@ import java.io.IOException;
 public interface StorageService {
     
     /**
-     * Stores a document file in the configured storage location.
-     *
-     * @param file The document file to store
-     * @param documentType The type of document (used for organizing files)
-     * @return The path or key where the file is stored
-     * @throws IOException If an error occurs during file storage
-     */
-    String storeDocument(MultipartFile file, String documentType) throws IOException;
-    
-    /**
      * Stores a document file with the original filename, replacing if it already exists.
      *
      * @param file The document file to store
@@ -54,4 +44,6 @@ public interface StorageService {
      * @return The storage location
      */
     String getStorageLocation();
+
+    public byte[] getDocumentByTypeAndStorage(String documentType, String storageId, String key) throws IOException;
 }

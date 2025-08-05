@@ -295,10 +295,11 @@ public class DocumentService {
      * Process a document asynchronously.
      *
      * @param documentId The ID of the document to process
+     * @param storageId
      * @return A CompletableFuture that will be completed when the processing is done
      */
-    public CompletableFuture<OcrResult> processDocumentAsync(Integer documentId) {
-        return ocrService.processDocumentAsync(documentId);
+    public CompletableFuture<OcrResult> processDocumentAsync(Integer documentId, String storageId) {
+        return ocrService.processDocumentAsync(documentId, storageId);
     }
 
     /**

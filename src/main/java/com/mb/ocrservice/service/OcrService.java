@@ -1,8 +1,6 @@
 package com.mb.ocrservice.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.mb.ocrservice.exception.OcrProcessingException;
@@ -19,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,21 +53,23 @@ public class OcrService {
      * Process a document asynchronously using OCR.
      *
      * @param documentId The ID of the document to process
+     * @param storageId
      * @return A CompletableFuture that will be completed when the OCR processing is done
      */
     @Async
-    public CompletableFuture<OcrResult> processDocumentAsync(Integer documentId) {
-        return CompletableFuture.supplyAsync(() -> processDocument(documentId));
+    public CompletableFuture<OcrResult> processDocumentAsync(Integer documentId, String storageId) {
+        return CompletableFuture.supplyAsync(() -> processDocument(documentId, storageId));
     }
 
     /**
      * Process a document using OCR.
      *
      * @param documentId The ID of the document to process
+     * @param storageId
      * @return The OCR result
      */
     @Transactional
-    public OcrResult processDocument(Integer documentId) {
+    public OcrResult processDocument(Integer documentId, String storageId) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found with ID: " + documentId));
 
@@ -98,7 +97,7 @@ public class OcrService {
             long startTime = System.currentTimeMillis();
 
             // Read document file using StorageService
-            byte[] fileData = storageService.getDocumentContent(document.getFilePath());
+            byte[] fileData = storageService.getDocumentByTypeAndStorage(document.getDocumentType().getName(), storageId, document.getFilePath());
 
             String extractedText;
             float confidenceScore;

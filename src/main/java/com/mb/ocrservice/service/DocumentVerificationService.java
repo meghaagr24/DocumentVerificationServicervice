@@ -206,7 +206,7 @@ public class DocumentVerificationService {
         
         // Process document for OCR
         log.info("Processing document with ID: {}", savedDocument.getId());
-        documentService.processDocumentAsync(savedDocument.getId()).join();
+        documentService.processDocumentAsync(savedDocument.getId(), docDetail.getStorageId()).join();
         
         // Now explicitly validate the document
         log.info("Validating document with ID: {}", savedDocument.getId());
