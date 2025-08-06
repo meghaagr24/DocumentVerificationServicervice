@@ -463,7 +463,7 @@ public class DocumentService {
             List<Document> document = documentRepository.findByFilePathStartingWith(prefix);
             
             if (!document.isEmpty()) {
-                return storageService.getDocumentContent(document.get(0).getFilePath());
+                return storageService.getDocumentByTypeAndStorage(documentType, storageId,document.get(0).getFilePath());
             } else {
                 throw new IllegalArgumentException("Document of type '" + documentType + 
                         "' not found for storage ID: " + storageId);
